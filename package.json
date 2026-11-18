@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "build": "tsc && node -e \"require('node:fs').copyFileSync('src/db/schema.sql', 'dist/db/schema.sql')\"",
+    "build": "tsc && node -e \"const fs=require('node:fs');fs.mkdirSync('dist/report',{recursive:true});fs.copyFileSync('src/db/schema.sql','dist/db/schema.sql');fs.copyFileSync('src/report/template.html','dist/report/template.html')\"",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts"
   },

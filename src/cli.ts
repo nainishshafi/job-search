@@ -7,6 +7,7 @@ import {
   updateJobStatus,
 } from './db/client.js';
 import { runSearch } from './runner.js';
+import { generateHtmlReport, isWithinDays } from './report/html.js';
 import { discoverBoards } from './sources/api/discover.js';
 import {
   resolveSourceId,
@@ -47,7 +48,8 @@ Registered sources: ${sources}
 
 Commands:
   search    --query <text> [--sources <list>] [--limit 20] [--db path]
-  list      [--status new|saved|applied|...] [--source <id>] [--search text] [--limit 25] [--db path]
+  list      [--status new|saved|applied|...] [--source <id>] [--search text] [--limit 25] [--json] [--db path]
+  report    [--status new|saved|applied|...] [--source <id>] [--search text] [--days 7] [--limit 500] [--out path] [--db path]
   update    --id <jobId> --status <status> [--notes "text"] [--db path]
   stats     [--db path]
   discover  [--tokens gh:foo,lv:bar] [--url <page-url>] [--boards path]`);
@@ -65,7 +67,7 @@ async function main(): Promise<void> {
     options: {
       query: { type: 'string', short: 'q' },
       sources: { type: 'string', short: 's' },
-      limit: { type: 'string', short: 'l', default: '20' },
+      limit: { type: 'string', short: 'l' },
       status: { type: 'string' },
       source: { type: 'string' },
       search: { type: 'string' },
@@ -75,6 +77,9 @@ async function main(): Promise<void> {
       tokens: { type: 'string' },
       url: { type: 'string' },
       boards: { type: 'string' },
+      json: { type: 'boolean', default: false },
+      days: { type: 'string' },
+      out: { type: 'string' },
     },
     allowPositionals: true,
   });
@@ -139,6 +144,10 @@ async function main(): Promise<void> {
         search: values.search,
         limit: Number(values.limit) || 25,
       });
+      if (values.json) {
+        console.log(JSON.stringify(jobs, null, 2));
+        return;
+      }
       const rows = jobs.map((j) => ({
         id: j.id,
         source: j.source,
@@ -155,6 +164,46 @@ async function main(): Promise<void> {
         last_seen: j.last_seen_at,
       }));
       console.table(rows);
+      return;
+    }
+
+    if (command === 'report') {
+      const status = values.status as JobStatus | undefined;
+      if (status && !VALID_STATUSES.has(status)) {
+        console.error(`Error: invalid status "${status}"`);
+        process.exitCode = 1;
+        return;
+      }
+      let source: JobSourceName | undefined;
+      if (values.source) {
+        source = resolveSourceId(values.source);
+        if (!source) {
+          console.error(`Error: invalid source "${values.source}"`);
+          process.exitCode = 1;
+          return;
+        }
+      }
+      const limit = Number(values.limit) || 500;
+      let jobs = listJobs(db, {
+        status,
+        source,
+        search: values.search,
+        limit,
+      });
+      const days = values.days ? Number(values.days) : undefined;
+      if (days !== undefined && Number.isFinite(days) && days > 0) {
+        jobs = jobs.filter((j) => isWithinDays(j.posted_at, days));
+      }
+      const parts: string[] = [`${jobs.length} job(s)`];
+      if (status) parts.push(`status=${status}`);
+      if (source) parts.push(`source=${source}`);
+      if (days) parts.push(`last ${days} day(s)`);
+      if (values.search) parts.push(`search="${values.search}"`);
+      const outPath = generateHtmlReport(jobs, {
+        filterSummary: parts.join(' • '),
+        outPath: values.out,
+      });
+      console.log(`Report generated (${jobs.length} jobs): ${outPath}`);
       return;
     }
 

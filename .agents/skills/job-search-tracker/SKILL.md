@@ -21,14 +21,15 @@ Use the project CLI (`src/cli.ts`) to inspect, search, and update job listings s
    ```powershell
    node --import tsx src/cli.ts stats
    ```
-2. List jobs with `status = new` (set `--limit` high enough to cover the `new` count from `stats`):
+2. Generate a timestamped HTML report with clickable links (instead of dumping all rows into the chat window):
    ```powershell
-   node --import tsx src/cli.ts list --status new --limit 150
+   node --import tsx src/cli.ts report --status new --days 7
    ```
-   Optional filters: `--source <id>`, `--search <text>`, `--db <path>`.
-3. Summarize the results for the user:
-   - Total `new` count broken down by `source` and latest `last_seen` timestamp.
-   - Highlight the most recently posted roles (with ID, title, company, salary, and posted time).
+   Optional filters: `--source <id>`, `--search <text>`, `--limit 500`, `--out <path>`, `--db <path>`.
+   (For raw JSON in scripts, use `node --import tsx src/cli.ts list --status new --limit 150 --json`.)
+3. Reply concisely with:
+   - Total count broken down by `source` and latest `last_seen` timestamp.
+   - A clickable `file:///` link to the generated HTML report (e.g. `data/reports/jobs-YYYY-MM-DD_HH-mm-ss.html`).
    - Offer to filter by keyword/salary/source or update statuses.
 
 ### 2. Run a Fresh Job Search

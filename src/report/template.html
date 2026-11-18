@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{TITLE}}</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface-hover: #263349;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-soft: rgba(56, 189, 248, 0.14);
+      --green: #34d399;
+      --green-soft: rgba(52, 211, 153, 0.14);
+      --amber: #fbbf24;
+      --amber-soft: rgba(251, 191, 36, 0.14);
+      --purple: #a78bfa;
+      --purple-soft: rgba(167, 139, 250, 0.14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 12px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 16px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    input[type="search"], select {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.9rem;
+      outline: none;
+    }
+    input[type="search"] {
+      flex: 1 1 260px;
+    }
+    input[type="search"]:focus, select:focus {
+      border-color: var(--accent);
+    }
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .pill {
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .pill:hover { color: var(--text); border-color: var(--accent); }
+    .pill.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      background: rgba(15, 23, 42, 0.45);
+      position: sticky;
+      top: 0;
+    }
+    tr:hover td {
+      background: var(--surface-hover);
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    a.job-link {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    a.job-link:hover {
+      text-decoration: underline;
+    }
+    .snippet {
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-top: 4px;
+      max-width: 520px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-jobstreet { background: var(--amber-soft); color: var(--amber); }
+    .badge-mycareersfuture { background: var(--green-soft); color: var(--green); }
+    .badge-greenhouse { background: var(--purple-soft); color: var(--purple); }
+    .badge-lever { background: var(--accent-soft); color: var(--accent); }
+    .salary { color: var(--green); font-weight: 600; white-space: nowrap; }
+    .na { color: var(--muted); }
+    .empty {
+      text-align: center;
+      padding: 36px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>{{TITLE}}</h1>
+        <div class="meta">{{FILTER_SUMMARY}}</div>
+      </div>
+      <div class="meta">Generated: {{GENERATED_AT}}</div>
+    </header>
+
+    <section class="stats" id="stats"></section>
+
+    <section class="controls">
+      <input type="search" id="searchInput" placeholder="Filter by title, company, location, or description..." />
+      <div class="pills" id="sourcePills"></div>
+      <select id="salaryFilter">
+        <option value="all">All Salaries</option>
+        <option value="with-salary">With Salary Only</option>
+      </select>
+    </section>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Source</th>
+            <th>Role &amp; Details</th>
+            <th>Company</th>
+            <th>Salary</th>
+            <th>Posted</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="jobsBody"></tbody>
+      </table>
+      <div class="empty" id="emptyState" style="display:none;">No matching jobs found.</div>
+    </div>
+  </div>
+
+  <script id="jobs-data" type="application/json">{{JOBS_JSON}}</script>
+  <script>
+    const jobs = JSON.parse(document.getElementById('jobs-data').textContent);
+    const statsEl = document.getElementById('stats');
+    const pillsEl = document.getElementById('sourcePills');
+    const bodyEl = document.getElementById('jobsBody');
+    const emptyEl = document.getElementById('emptyState');
+    const searchInput = document.getElementById('searchInput');
+    const salaryFilter = document.getElementById('salaryFilter');
+
+    let activeSource = 'all';
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function formatSalary(j) {
+      if (j.salary_min === null && j.salary_max === null) return '<span class="na">N/A</span>';
+      const range = j.salary_min && j.salary_max && j.salary_min !== j.salary_max
+        ? `${j.salary_min.toLocaleString()}-${j.salary_max.toLocaleString()}`
+        : `${(j.salary_min ?? j.salary_max).toLocaleString()}`;
+      const interval = j.salary_interval ? `/${escapeHtml(j.salary_interval)}` : '';
+      return `<span class="salary">${escapeHtml(j.salary_currency)} ${range}${interval}</span>`;
+    }
+
+    const sources = Array.from(new Set(jobs.map(j => j.source)));
+
+    function renderStats(filtered) {
+      const bySource = {};
+      for (const s of sources) bySource[s] = 0;
+      for (const j of filtered) bySource[j.source] = (bySource[j.source] || 0) + 1;
+      const withSalary = filtered.filter(j => j.salary_min !== null || j.salary_max !== null).length;
+
+      let html = `<div class="stat-card"><div class="stat-label">Showing Jobs</div><div class="stat-value">${filtered.length}</div></div>`;
+      html += `<div class="stat-card"><div class="stat-label">With Salary</div><div class="stat-value">${withSalary}</div></div>`;
+      for (const [src, cnt] of Object.entries(bySource)) {
+        html += `<div class="stat-card"><div class="stat-label">${escapeHtml(src)}</div><div class="stat-value">${cnt}</div></div>`;
+      }
+      statsEl.innerHTML = html;
+    }
+
+    function renderPills() {
+      const allSources = ['all', ...sources];
+      pillsEl.innerHTML = allSources.map(src => {
+        const label = src === 'all' ? `All (${jobs.length})` : `${src} (${jobs.filter(j => j.source === src).length})`;
+        return `<button class="pill ${activeSource === src ? 'active' : ''}" data-src="${escapeHtml(src)}">${escapeHtml(label)}</button>`;
+      }).join('');
+      pillsEl.querySelectorAll('.pill').forEach(btn => {
+        btn.addEventListener('click', () => {
+          activeSource = btn.dataset.src;
+          renderPills();
+          render();
+        });
+      });
+    }
+
+    function render() {
+      const q = searchInput.value.trim().toLowerCase();
+      const sal = salaryFilter.value;
+      const filtered = jobs.filter(j => {
+        if (activeSource !== 'all' && j.source !== activeSource) return false;
+        if (sal === 'with-salary' && j.salary_min === null && j.salary_max === null) return false;
+        if (q) {
+          const hay = `${j.title} ${j.company} ${j.location || ''} ${j.description_snippet || ''}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      renderStats(filtered);
+      if (filtered.length === 0) {
+        bodyEl.innerHTML = '';
+        emptyEl.style.display = 'block';
+        return;
+      }
+      emptyEl.style.display = 'none';
+
+      bodyEl.innerHTML = filtered.map(j => {
+        const badgeClass = `badge-${escapeHtml(j.source)}`;
+        const snippet = j.description_snippet ? `<div class="snippet">${escapeHtml(j.description_snippet)}</div>` : '';
+        return `
+          <tr>
+            <td>#${j.id}</td>
+            <td><span class="badge ${badgeClass}">${escapeHtml(j.source)}</span></td>
+            <td>
+              <a class="job-link" href="${escapeHtml(j.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(j.title)}</a>
+              ${snippet}
+            </td>
+            <td>${escapeHtml(j.company)}</td>
+            <td>${formatSalary(j)}</td>
+            <td>${escapeHtml(j.posted_at || 'N/A')}</td>
+            <td>${escapeHtml(j.status)}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    searchInput.addEventListener('input', render);
+    salaryFilter.addEventListener('change', render);
+    renderPills();
+    render();
+  </script>
+</body>
+</html>
