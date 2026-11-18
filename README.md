@@ -40,29 +40,31 @@ npm run build
 
 ## CLI Usage
 
-Run via `npm run dev -- <command>` (TypeScript via `tsx`) or `node dist/cli.js <command>` (compiled JS):
+Run via `node --import tsx src/cli.ts <command>` (TypeScript via `tsx`) or `node dist/cli.js <command>` (compiled JS):
+
+> **Note:** Avoid `npm run dev -- <command> --flag ...` because `npm` strips `--flag` options before forwarding arguments to `tsx`.
 
 ```powershell
 # Search all registered sources (gh, lv, mcf, js)
-npm run dev -- search --query "Java" --limit 50
+node --import tsx src/cli.ts search --query "Java" --limit 50
 
 # Search specific sources
-npm run dev -- search --query "Backend Engineer" --sources mcf,jobstreet --limit 25
+node --import tsx src/cli.ts search --query "Backend Engineer" --sources mcf,jobstreet --limit 25
 
 # List tracked jobs (filter by status, source, or keyword)
-npm run dev -- list --status new --limit 25
-npm run dev -- list --source mcf --search "Lead"
+node --import tsx src/cli.ts list --status new --limit 25
+node --import tsx src/cli.ts list --source mcf --search "Lead"
 
 # Update application status and notes
-npm run dev -- update --id 1 --status applied --notes "Applied via portal"
+node --import tsx src/cli.ts update --id 1 --status applied --notes "Applied via portal"
 
 # View status counts and recent scrape runs
-npm run dev -- stats
+node --import tsx src/cli.ts stats
 
 # Discover and validate more Singapore ATS company boards into config/boards.json
-npm run dev -- discover
-npm run dev -- discover --url "https://raw.githubusercontent.com/..."
-npm run dev -- discover --tokens "gh:company1,lv:company2"
+node --import tsx src/cli.ts discover
+node --import tsx src/cli.ts discover --url "https://raw.githubusercontent.com/..."
+node --import tsx src/cli.ts discover --tokens "gh:company1,lv:company2"
 ```
 
 ---
@@ -70,6 +72,11 @@ npm run dev -- discover --tokens "gh:company1,lv:company2"
 ## Project Structure
 
 ```text
+├── .agents/
+│   └── skills/
+│       └── job-search-tracker/
+│           └── SKILL.md                # Workspace agent skill for querying & updating jobs
+├── AGENTS.md                           # Project instructions for AI coding agents
 ├── config/
 │   └── boards.json                     # Externalized Greenhouse & Lever company tokens
 ├── data/
