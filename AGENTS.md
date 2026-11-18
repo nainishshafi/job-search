@@ -7,8 +7,9 @@ When the user asks about jobs (e.g., *"what are the new jobs"*, *"job stats"*, *
 - Use `node --import tsx src/cli.ts <command>` (never `npm run dev -- ...`, which strips `--flag` arguments).
 - Database path defaults to `data/jobs.db`.
 
-## Development Commands
+## Development Commands & Review
 
 - Typecheck: `npm run typecheck`
 - Build: `npm run build`
 - Tests: `npm test`
+- Run `agent-orchestrator` (`plan -> develop -> codereview -> complexitychecks -> architecturechecks -> halucinationchecks -> securitychecks`) alongside `npm run typecheck` and `npm test` for development changes.

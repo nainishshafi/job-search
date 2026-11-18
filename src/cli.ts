@@ -27,6 +27,26 @@ const VALID_STATUSES = new Set<JobStatus>([
   'archived',
 ]);
 
+function parseFilterArgs(
+  statusRaw?: string,
+  sourceRaw?: string,
+): { status?: JobStatus; source?: JobSourceName } | null {
+  const status = statusRaw as JobStatus | undefined;
+  if (status && !VALID_STATUSES.has(status)) {
+    console.error(`Error: invalid status "${status}"`);
+    return null;
+  }
+  let source: JobSourceName | undefined;
+  if (sourceRaw) {
+    source = resolveSourceId(sourceRaw);
+    if (!source) {
+      console.error(`Error: invalid source "${sourceRaw}"`);
+      return null;
+    }
+  }
+  return { status, source };
+}
+
 function formatSalary(
   min: number | null,
   max: number | null,
@@ -123,24 +143,14 @@ async function main(): Promise<void> {
     }
 
     if (command === 'list') {
-      const status = values.status as JobStatus | undefined;
-      if (status && !VALID_STATUSES.has(status)) {
-        console.error(`Error: invalid status "${status}"`);
+      const filters = parseFilterArgs(values.status, values.source);
+      if (!filters) {
         process.exitCode = 1;
         return;
       }
-      let source: JobSourceName | undefined;
-      if (values.source) {
-        source = resolveSourceId(values.source);
-        if (!source) {
-          console.error(`Error: invalid source "${values.source}"`);
-          process.exitCode = 1;
-          return;
-        }
-      }
       const jobs = listJobs(db, {
-        status,
-        source,
+        status: filters.status,
+        source: filters.source,
         search: values.search,
         limit: Number(values.limit) || 25,
       });
@@ -168,35 +178,33 @@ async function main(): Promise<void> {
     }
 
     if (command === 'report') {
-      const status = values.status as JobStatus | undefined;
-      if (status && !VALID_STATUSES.has(status)) {
-        console.error(`Error: invalid status "${status}"`);
+      const filters = parseFilterArgs(values.status, values.source);
+      if (!filters) {
         process.exitCode = 1;
         return;
       }
-      let source: JobSourceName | undefined;
-      if (values.source) {
-        source = resolveSourceId(values.source);
-        if (!source) {
-          console.error(`Error: invalid source "${values.source}"`);
+      let days: number | undefined;
+      if (values.days !== undefined) {
+        days = Number(values.days);
+        if (!Number.isFinite(days) || days <= 0) {
+          console.error(`Error: --days must be a positive number (got "${values.days}")`);
           process.exitCode = 1;
           return;
         }
       }
       const limit = Number(values.limit) || 500;
       let jobs = listJobs(db, {
-        status,
-        source,
+        status: filters.status,
+        source: filters.source,
         search: values.search,
         limit,
       });
-      const days = values.days ? Number(values.days) : undefined;
-      if (days !== undefined && Number.isFinite(days) && days > 0) {
+      if (days !== undefined) {
         jobs = jobs.filter((j) => isWithinDays(j.posted_at, days));
       }
       const parts: string[] = [`${jobs.length} job(s)`];
-      if (status) parts.push(`status=${status}`);
-      if (source) parts.push(`source=${source}`);
+      if (filters.status) parts.push(`status=${filters.status}`);
+      if (filters.source) parts.push(`source=${filters.source}`);
       if (days) parts.push(`last ${days} day(s)`);
       if (values.search) parts.push(`search="${values.search}"`);
       const outPath = generateHtmlReport(jobs, {

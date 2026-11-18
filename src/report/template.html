@@ -247,6 +247,15 @@
         .replace(/"/g, '&quot;');
     }
 
+    function safeHref(url) {
+      try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? url : '#';
+      } catch {
+        return '#';
+      }
+    }
+
     function formatSalary(j) {
       if (j.salary_min === null && j.salary_max === null) return '<span class="na">N/A</span>';
       const range = j.salary_min && j.salary_max && j.salary_min !== j.salary_max
@@ -316,7 +325,7 @@
             <td>#${j.id}</td>
             <td><span class="badge ${badgeClass}">${escapeHtml(j.source)}</span></td>
             <td>
-              <a class="job-link" href="${escapeHtml(j.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(j.title)}</a>
+              <a class="job-link" href="${escapeHtml(safeHref(j.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(j.title)}</a>
               ${snippet}
             </td>
             <td>${escapeHtml(j.company)}</td>

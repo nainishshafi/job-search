@@ -37,6 +37,12 @@ export function isWithinDays(
     return Number(dayMatch[1]) <= days;
   }
 
+  if (/^\d{4}-\d{2}-\d{2}$/.test(postedAt.trim())) {
+    const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const cutoffDay = `${cutoff.getUTCFullYear()}-${pad2(cutoff.getUTCMonth() + 1)}-${pad2(cutoff.getUTCDate())}`;
+    return postedAt.trim() >= cutoffDay;
+  }
+
   const parsed = Date.parse(postedAt);
   if (!Number.isNaN(parsed)) {
     const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000;
@@ -72,10 +78,10 @@ export function generateHtmlReport(
   const safeJson = JSON.stringify(jobs).replace(/</g, '\\u003c');
 
   const html = template
-    .replaceAll('{{TITLE}}', escapeHtmlText(title))
-    .replaceAll('{{FILTER_SUMMARY}}', escapeHtmlText(filterSummary))
-    .replaceAll('{{GENERATED_AT}}', escapeHtmlText(generatedAt))
-    .replace('{{JOBS_JSON}}', safeJson);
+    .replaceAll('{{TITLE}}', () => escapeHtmlText(title))
+    .replaceAll('{{FILTER_SUMMARY}}', () => escapeHtmlText(filterSummary))
+    .replaceAll('{{GENERATED_AT}}', () => escapeHtmlText(generatedAt))
+    .replace('{{JOBS_JSON}}', () => safeJson);
 
   const outPath = path.resolve(
     options.outPath ??
