@@ -1,0 +1,16 @@
+node_modules/
+dist/
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+*.log
+npm-debug.log*
+playwright-report/
+test-results/
+.overengineering-analysis/
+.pattern-analysis/
+.DS_Store
+Thumbs.db
