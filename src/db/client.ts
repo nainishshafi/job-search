@@ -227,6 +227,12 @@ export function getKnownExternalIds(
 
 export function getStats(db: Database.Database): {
   byStatus: Array<{ status: string; count: number }>;
+  bySource: Array<{
+    source: string;
+    total: number;
+    new_count: number;
+    latest_last_seen: string;
+  }>;
   recentRuns: Array<{
     id: number;
     source: string;
@@ -240,6 +246,23 @@ export function getStats(db: Database.Database): {
   const byStatus = db
     .prepare('SELECT status, COUNT(*) as count FROM jobs GROUP BY status')
     .all() as Array<{ status: string; count: number }>;
+
+  const bySource = db
+    .prepare(
+      `SELECT source,
+              COUNT(*) as total,
+              SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) as new_count,
+              MAX(last_seen_at) as latest_last_seen
+       FROM jobs
+       GROUP BY source
+       ORDER BY new_count DESC, total DESC`,
+    )
+    .all() as Array<{
+    source: string;
+    total: number;
+    new_count: number;
+    latest_last_seen: string;
+  }>;
 
   const recentRuns = db
     .prepare(
@@ -256,5 +279,5 @@ export function getStats(db: Database.Database): {
     started_at: string;
   }>;
 
-  return { byStatus, recentRuns };
+  return { byStatus, bySource, recentRuns };
 }

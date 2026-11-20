@@ -1,62 +1,7 @@
-import path from 'node:path';
-import { parseArgs } from 'node:util';
-import {
-  getStats,
-  listJobs,
-  openDatabase,
-  updateJobStatus,
-} from './db/client.js';
-import { runSearch } from './runner.js';
-import { generateHtmlReport, isWithinDays } from './report/html.js';
-import { discoverBoards } from './sources/api/discover.js';
-import {
-  resolveSourceId,
-  resolveSourceIds,
-  SOURCE_REGISTRY,
-} from './sources/registry.js';
-import type { JobSourceName, JobStatus } from './sources/types.js';
-
-const DEFAULT_DB_PATH = path.resolve(process.cwd(), 'data', 'jobs.db');
-
-const VALID_STATUSES = new Set<JobStatus>([
-  'new',
-  'saved',
-  'applied',
-  'interviewing',
-  'rejected',
-  'archived',
-]);
-
-function parseFilterArgs(
-  statusRaw?: string,
-  sourceRaw?: string,
-): { status?: JobStatus; source?: JobSourceName } | null {
-  const status = statusRaw as JobStatus | undefined;
-  if (status && !VALID_STATUSES.has(status)) {
-    console.error(`Error: invalid status "${status}"`);
-    return null;
-  }
-  let source: JobSourceName | undefined;
-  if (sourceRaw) {
-    source = resolveSourceId(sourceRaw);
-    if (!source) {
-      console.error(`Error: invalid source "${sourceRaw}"`);
-      return null;
-    }
-  }
-  return { status, source };
-}
-
-function formatSalary(
-  min: number | null,
-  max: number | null,
-  currency: string,
-  interval: string | null,
-): string {
-  if (min === null && max === null) return 'N/A';
-  const range = min && max && min !== max ? `${min}-${max}` : `${min ?? max}`;
-  return `${currency} ${range}${interval ? `/${interval}` : ''}`;
-}
+import { DEFAULT_DB_PATH, parseCliArgs } from './cli/args.js';
+import { DB_COMMANDS, handleDiscover } from './cli/commands.js';
+import { openDatabase } from './db/client.js';
+import { SOURCE_REGISTRY } from './sources/registry.js';
 
 function printHelp(): void {
   const sources = SOURCE_REGISTRY.map(
@@ -67,6 +12,7 @@ function printHelp(): void {
 Registered sources: ${sources}
 
 Commands:
+  full      [--query "Java"] [--sources <list>] [--limit 50] [--days 7] [--out path] [--db path]
   search    --query <text> [--sources <list>] [--limit 20] [--db path]
   list      [--status new|saved|applied|...] [--source <id>] [--search text] [--limit 25] [--json] [--db path]
   report    [--status new|saved|applied|...] [--source <id>] [--search text] [--days 7] [--limit 500] [--out path] [--db path]
@@ -76,175 +22,28 @@ Commands:
 }
 
 async function main(): Promise<void> {
-  const [command, ...rest] = process.argv.slice(2);
+  const { command, values } = parseCliArgs(process.argv.slice(2));
   if (!command || command === '--help' || command === '-h') {
     printHelp();
     return;
   }
 
-  const { values } = parseArgs({
-    args: rest,
-    options: {
-      query: { type: 'string', short: 'q' },
-      sources: { type: 'string', short: 's' },
-      limit: { type: 'string', short: 'l' },
-      status: { type: 'string' },
-      source: { type: 'string' },
-      search: { type: 'string' },
-      id: { type: 'string' },
-      notes: { type: 'string' },
-      db: { type: 'string', default: DEFAULT_DB_PATH },
-      tokens: { type: 'string' },
-      url: { type: 'string' },
-      boards: { type: 'string' },
-      json: { type: 'boolean', default: false },
-      days: { type: 'string' },
-      out: { type: 'string' },
-    },
-    allowPositionals: true,
-  });
-
   if (command === 'discover') {
-    const result = await discoverBoards({
-      tokens: values.tokens,
-      url: values.url,
-      boardsPath: values.boards,
-    });
-    console.log(
-      `Probed ${result.probed} candidate board(s), added ${result.added.length} Singapore-active board(s).`,
-    );
-    if (result.added.length > 0) {
-      console.table(result.added);
-    }
+    process.exitCode = await handleDiscover(values);
+    return;
+  }
+
+  const handler = DB_COMMANDS[command];
+  if (!handler) {
+    console.error(`Unknown command: ${command}`);
+    printHelp();
+    process.exitCode = 1;
     return;
   }
 
   const db = openDatabase(values.db ?? DEFAULT_DB_PATH);
   try {
-    if (command === 'search') {
-      const query = values.query?.trim();
-      if (!query) {
-        console.error('Error: --query is required for search');
-        process.exitCode = 1;
-        return;
-      }
-      const limit = Math.min(Math.max(Number(values.limit) || 20, 1), 100);
-      let sources: string[];
-      try {
-        sources = resolveSourceIds(values.sources);
-      } catch (err) {
-        console.error(err instanceof Error ? err.message : String(err));
-        process.exitCode = 1;
-        return;
-      }
-      const reports = await runSearch(db, { query, sources, limit });
-      console.table(reports);
-      return;
-    }
-
-    if (command === 'list') {
-      const filters = parseFilterArgs(values.status, values.source);
-      if (!filters) {
-        process.exitCode = 1;
-        return;
-      }
-      const jobs = listJobs(db, {
-        status: filters.status,
-        source: filters.source,
-        search: values.search,
-        limit: Number(values.limit) || 25,
-      });
-      if (values.json) {
-        console.log(JSON.stringify(jobs, null, 2));
-        return;
-      }
-      const rows = jobs.map((j) => ({
-        id: j.id,
-        source: j.source,
-        title: j.title.slice(0, 42),
-        company: j.company.slice(0, 24),
-        salary: formatSalary(
-          j.salary_min,
-          j.salary_max,
-          j.salary_currency,
-          j.salary_interval,
-        ),
-        posted: j.posted_at ?? 'N/A',
-        status: j.status,
-        last_seen: j.last_seen_at,
-      }));
-      console.table(rows);
-      return;
-    }
-
-    if (command === 'report') {
-      const filters = parseFilterArgs(values.status, values.source);
-      if (!filters) {
-        process.exitCode = 1;
-        return;
-      }
-      let days: number | undefined;
-      if (values.days !== undefined) {
-        days = Number(values.days);
-        if (!Number.isFinite(days) || days <= 0) {
-          console.error(`Error: --days must be a positive number (got "${values.days}")`);
-          process.exitCode = 1;
-          return;
-        }
-      }
-      const limit = Number(values.limit) || 500;
-      let jobs = listJobs(db, {
-        status: filters.status,
-        source: filters.source,
-        search: values.search,
-        limit,
-      });
-      if (days !== undefined) {
-        jobs = jobs.filter((j) => isWithinDays(j.posted_at, days));
-      }
-      const parts: string[] = [`${jobs.length} job(s)`];
-      if (filters.status) parts.push(`status=${filters.status}`);
-      if (filters.source) parts.push(`source=${filters.source}`);
-      if (days) parts.push(`last ${days} day(s)`);
-      if (values.search) parts.push(`search="${values.search}"`);
-      const outPath = generateHtmlReport(jobs, {
-        filterSummary: parts.join(' • '),
-        outPath: values.out,
-      });
-      console.log(`Report generated (${jobs.length} jobs): ${outPath}`);
-      return;
-    }
-
-    if (command === 'update') {
-      const id = Number(values.id);
-      const status = values.status as JobStatus | undefined;
-      if (!Number.isInteger(id) || id <= 0 || !status || !VALID_STATUSES.has(status)) {
-        console.error('Error: valid --id and --status are required');
-        process.exitCode = 1;
-        return;
-      }
-      const updated = updateJobStatus(db, id, status, values.notes);
-      if (!updated) {
-        console.error(`No job found with id=${id}`);
-        process.exitCode = 1;
-        return;
-      }
-      console.log(`Updated job #${id} -> status="${status}"`);
-      return;
-    }
-
-    if (command === 'stats') {
-      const stats = getStats(db);
-      console.log('Jobs by status:');
-      console.table(stats.byStatus);
-      console.log('Recent scrape runs:');
-      console.table(stats.recentRuns);
-      return;
-    }
-
-    console.error(`Unknown command: ${command}`);
-    printHelp();
-    process.exitCode = 1;
+    process.exitCode = await handler(db, values);
   } finally {
     db.close();
   }

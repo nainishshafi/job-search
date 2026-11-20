@@ -14,3 +14,4 @@ test-results/
 .pattern-analysis/
 .DS_Store
 Thumbs.db
+.orchestrator/

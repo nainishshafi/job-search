@@ -166,4 +166,38 @@ describe('SQLite job tracker', () => {
     assert.ok(getSourceFetcher('mycareersfuture'));
     assert.equal(getSourceFetcher('unknown-board'), undefined);
   });
+
+  it('returns per-source totals, new counts, and latest_last_seen in getStats', () => {
+    const db = openDatabase(':memory:');
+    try {
+      const emptyStats = getStats(db);
+      assert.deepEqual(emptyStats.byStatus, []);
+      assert.deepEqual(emptyStats.bySource, []);
+      assert.deepEqual(emptyStats.recentRuns, []);
+
+      upsertJobs(db, [
+        makeJob({ source: 'jobstreet', externalId: 'js-1' }),
+        makeJob({ source: 'jobstreet', externalId: 'js-2' }),
+        makeJob({ source: 'mycareersfuture', externalId: 'mcf-1' }),
+      ]);
+      const [firstJs] = listJobs(db, { source: 'jobstreet' });
+      updateJobStatus(db, firstJs.id, 'saved');
+
+      const stats = getStats(db);
+      const jsRow = stats.bySource.find((r) => r.source === 'jobstreet');
+      const mcfRow = stats.bySource.find((r) => r.source === 'mycareersfuture');
+
+      assert.ok(jsRow);
+      assert.equal(jsRow.total, 2);
+      assert.equal(jsRow.new_count, 1);
+      assert.ok(jsRow.latest_last_seen);
+
+      assert.ok(mcfRow);
+      assert.equal(mcfRow.total, 1);
+      assert.equal(mcfRow.new_count, 1);
+      assert.ok(mcfRow.latest_last_seen);
+    } finally {
+      db.close();
+    }
+  });
 });
