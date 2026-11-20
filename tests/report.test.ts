@@ -85,6 +85,58 @@ describe('HTML report generator', () => {
     );
   });
 
+  it('combines date-only posted_at (MCF) with extraction time for sorting', () => {
+    const base: Omit<StoredJob, 'id' | 'posted_at' | 'first_seen_at' | 'last_seen_at'> = {
+      source: 'mycareersfuture',
+      external_id: 'mcf',
+      url: 'https://www.mycareersfuture.gov.sg/job/1',
+      title: 'Java Dev',
+      company: 'Acme',
+      location: 'Singapore',
+      salary_min: null,
+      salary_max: null,
+      salary_currency: 'SGD',
+      salary_interval: null,
+      employment_type: null,
+      description_snippet: null,
+      skills_json: '[]',
+      status: 'new',
+      notes: null,
+    };
+
+    const mcfEarlierExtraction: StoredJob = {
+      ...base,
+      id: 10,
+      posted_at: '2026-11-20',
+      first_seen_at: '2026-11-20 00:30:00',
+      last_seen_at: '2026-11-20 00:30:00',
+    };
+    const mcfLaterExtraction: StoredJob = {
+      ...base,
+      id: 11,
+      posted_at: '2026-11-20',
+      first_seen_at: '2026-11-20 01:15:00',
+      last_seen_at: '2026-11-20 01:15:00',
+    };
+    const mcfOlderDateLaterExtraction: StoredJob = {
+      ...base,
+      id: 12,
+      posted_at: '2026-11-19',
+      first_seen_at: '2026-11-20 02:00:00',
+      last_seen_at: '2026-11-20 02:00:00',
+    };
+
+    const sorted = sortJobsByDateDesc([
+      mcfOlderDateLaterExtraction,
+      mcfEarlierExtraction,
+      mcfLaterExtraction,
+    ]);
+    assert.deepEqual(
+      sorted.map((j) => j.id),
+      [11, 10, 12],
+    );
+  });
+
   it('generates HTML report safely escaping script breakout and $ patterns', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'job-report-test-'));
     const outPath = path.join(tmpDir, 'report.html');

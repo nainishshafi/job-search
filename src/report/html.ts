@@ -92,6 +92,14 @@ export function parsePostedAtMs(
     return anchor.getTime() - amount * unitMs[relMatch[2]];
   }
 
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const timePart = `${pad2(anchor.getUTCHours())}:${pad2(anchor.getUTCMinutes())}:${pad2(anchor.getUTCSeconds())}Z`;
+    const combined = Date.parse(`${trimmed}T${timePart}`);
+    if (!Number.isNaN(combined)) {
+      return combined;
+    }
+  }
+
   return parseSqliteOrIsoMs(trimmed);
 }
 
@@ -100,10 +108,27 @@ export function sortJobsByDateDesc(
   now: Date = new Date(),
 ): StoredJob[] {
   return [...jobs].sort((a, b) => {
+    const aFirstSeen = parseSqliteOrIsoMs(a.first_seen_at) ?? 0;
+    const bFirstSeen = parseSqliteOrIsoMs(b.first_seen_at) ?? 0;
     const aLastSeen = parseSqliteOrIsoMs(a.last_seen_at) ?? 0;
     const bLastSeen = parseSqliteOrIsoMs(b.last_seen_at) ?? 0;
-    const aAnchor = aLastSeen > 0 ? new Date(aLastSeen) : now;
-    const bAnchor = bLastSeen > 0 ? new Date(bLastSeen) : now;
+
+    const aIsDateOnly = Boolean(
+      a.posted_at && /^\d{4}-\d{2}-\d{2}$/.test(a.posted_at.trim()),
+    );
+    const bIsDateOnly = Boolean(
+      b.posted_at && /^\d{4}-\d{2}-\d{2}$/.test(b.posted_at.trim()),
+    );
+
+    const aAnchorMs = aIsDateOnly
+      ? aFirstSeen || aLastSeen
+      : aLastSeen || aFirstSeen;
+    const bAnchorMs = bIsDateOnly
+      ? bFirstSeen || bLastSeen
+      : bLastSeen || bFirstSeen;
+
+    const aAnchor = aAnchorMs > 0 ? new Date(aAnchorMs) : now;
+    const bAnchor = bAnchorMs > 0 ? new Date(bAnchorMs) : now;
 
     const aPosted = parsePostedAtMs(a.posted_at, aAnchor) ?? aLastSeen;
     const bPosted = parsePostedAtMs(b.posted_at, bAnchor) ?? bLastSeen;
