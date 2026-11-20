@@ -8,6 +8,7 @@ import {
   formatTimestampFilename,
   generateHtmlReport,
   isWithinDays,
+  sortJobsByDateDesc,
 } from '../src/report/html.js';
 
 describe('HTML report generator', () => {
@@ -27,6 +28,61 @@ describe('HTML report generator', () => {
     assert.equal(isWithinDays('2026-11-17T05:42:07-05:00', 7, now), true);
     assert.equal(isWithinDays('2026-11-05T03:20:43-05:00', 7, now), false);
     assert.equal(isWithinDays(null, 7, now), true);
+  });
+
+  it('sorts jobs by posted_at descending (latest on top)', () => {
+    const base: Omit<StoredJob, 'id' | 'posted_at' | 'last_seen_at'> = {
+      source: 'jobstreet',
+      external_id: 'x',
+      url: 'https://sg.jobstreet.com/job/1',
+      title: 'Dev',
+      company: 'Acme',
+      location: 'Singapore',
+      salary_min: null,
+      salary_max: null,
+      salary_currency: 'SGD',
+      salary_interval: null,
+      employment_type: null,
+      description_snippet: null,
+      skills_json: '[]',
+      first_seen_at: '2026-11-18 00:00:00',
+      status: 'new',
+      notes: null,
+    };
+
+    const olderRel: StoredJob = {
+      ...base,
+      id: 1,
+      posted_at: '3d ago',
+      last_seen_at: '2026-11-20 08:00:00',
+    };
+    const isoMiddle: StoredJob = {
+      ...base,
+      id: 2,
+      posted_at: '2026-11-19',
+      last_seen_at: '2026-11-19 10:00:00',
+    };
+    const newestRel: StoredJob = {
+      ...base,
+      id: 3,
+      posted_at: '2h ago',
+      last_seen_at: '2026-11-20 08:00:00',
+    };
+    const latestIso: StoredJob = {
+      ...base,
+      id: 4,
+      posted_at: '2026-11-20T07:30:00Z',
+      last_seen_at: '2026-11-20 07:35:00',
+    };
+
+    const sorted = sortJobsByDateDesc(
+      [olderRel, isoMiddle, newestRel, latestIso],
+      new Date('2026-11-20T08:00:00Z'),
+    );
+    assert.deepEqual(
+      sorted.map((j) => j.id),
+      [4, 3, 2, 1],
+    );
   });
 
   it('generates HTML report safely escaping script breakout and $ patterns', () => {

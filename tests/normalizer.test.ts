@@ -12,6 +12,7 @@ import {
 } from '../src/sources/api/discover.js';
 import { normalizeMcfJob } from '../src/sources/api/mycareersfuture.js';
 import {
+  buildJobStreetSearchUrl,
   normalizeJobStreetCard,
   parseSgdSalary,
 } from '../src/sources/playwright/jobstreet.js';
@@ -84,6 +85,18 @@ describe('Job payload normalizers', () => {
     assert.equal(job.salaryMin, 6000);
     assert.equal(job.salaryMax, 9000);
     assert.equal(job.salaryInterval, 'monthly');
+  });
+
+  it('builds ICT-scoped JobStreet URLs preserving special characters like c# and .net', () => {
+    assert.equal(
+      buildJobStreetSearchUrl('c#', 1),
+      'https://sg.jobstreet.com/jobs-in-information-communication-technology/in-Singapore?keywords=c%23&sortmode=ListedDate&page=1',
+    );
+    assert.equal(
+      buildJobStreetSearchUrl('.net', 2),
+      'https://sg.jobstreet.com/jobs-in-information-communication-technology/in-Singapore?keywords=.net&sortmode=ListedDate&page=2',
+    );
+    assert.equal(buildJobStreetSearchUrl('   ', 1), null);
   });
 
   it('normalizes Greenhouse and Lever jobs and filters non-Singapore locations', () => {

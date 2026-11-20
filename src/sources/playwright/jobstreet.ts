@@ -76,15 +76,27 @@ export function normalizeJobStreetCard(card: RawJobStreetCard): JobListing | nul
   };
 }
 
+export function buildJobStreetSearchUrl(
+  query: string,
+  pageNum: number,
+): string | null {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    keywords: trimmed,
+    sortmode: 'ListedDate',
+    page: String(pageNum),
+  });
+  return `https://sg.jobstreet.com/jobs-in-information-communication-technology/in-Singapore?${params.toString()}`;
+}
+
 export async function fetchJobStreetJobs(
   options: SearchOptions,
 ): Promise<SourceFetchResult> {
-  const slug = options.query
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '');
-  if (!slug) {
+  if (!buildJobStreetSearchUrl(options.query, 1)) {
     return { jobs: [] };
   }
 
@@ -93,7 +105,10 @@ export async function fetchJobStreetJobs(
 
   return withBrowserPage(async (page) => {
     for (let pageNum = 1; jobs.length < options.limit; pageNum += 1) {
-      const targetUrl = `https://sg.jobstreet.com/${slug}-jobs/in-Singapore?sortmode=ListedDate&page=${pageNum}`;
+      const targetUrl = buildJobStreetSearchUrl(options.query, pageNum);
+      if (!targetUrl) {
+        break;
+      }
       const response = await page.goto(targetUrl, {
         waitUntil: 'domcontentloaded',
       });

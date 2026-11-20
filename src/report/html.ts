@@ -52,6 +52,72 @@ export function isWithinDays(
   return true;
 }
 
+function parseSqliteOrIsoMs(value: string | null): number | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  // SQLite CURRENT_TIMESTAMP produces "YYYY-MM-DD HH:MM:SS" in UTC.
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed)
+    ? `${trimmed.replace(' ', 'T')}Z`
+    : trimmed;
+  const parsed = Date.parse(normalized);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+export function parsePostedAtMs(
+  postedAt: string | null,
+  anchor: Date = new Date(),
+): number | null {
+  if (!postedAt) return null;
+  const trimmed = postedAt.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+
+  if (lower === 'just now' || lower === 'today') {
+    return anchor.getTime();
+  }
+  if (lower === 'yesterday') {
+    return anchor.getTime() - 24 * 60 * 60 * 1000;
+  }
+
+  const relMatch = lower.match(/^(\d+)\s*\+?\s*([mhdw])\s+ago\b/);
+  if (relMatch) {
+    const amount = Number(relMatch[1]);
+    const unitMs: Record<string, number> = {
+      m: 60 * 1000,
+      h: 60 * 60 * 1000,
+      d: 24 * 60 * 60 * 1000,
+      w: 7 * 24 * 60 * 60 * 1000,
+    };
+    return anchor.getTime() - amount * unitMs[relMatch[2]];
+  }
+
+  return parseSqliteOrIsoMs(trimmed);
+}
+
+export function sortJobsByDateDesc(
+  jobs: StoredJob[],
+  now: Date = new Date(),
+): StoredJob[] {
+  return [...jobs].sort((a, b) => {
+    const aLastSeen = parseSqliteOrIsoMs(a.last_seen_at) ?? 0;
+    const bLastSeen = parseSqliteOrIsoMs(b.last_seen_at) ?? 0;
+    const aAnchor = aLastSeen > 0 ? new Date(aLastSeen) : now;
+    const bAnchor = bLastSeen > 0 ? new Date(bLastSeen) : now;
+
+    const aPosted = parsePostedAtMs(a.posted_at, aAnchor) ?? aLastSeen;
+    const bPosted = parsePostedAtMs(b.posted_at, bAnchor) ?? bLastSeen;
+
+    if (bPosted !== aPosted) {
+      return bPosted - aPosted;
+    }
+    if (bLastSeen !== aLastSeen) {
+      return bLastSeen - aLastSeen;
+    }
+    return b.id - a.id;
+  });
+}
+
 function escapeHtmlText(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -75,7 +141,8 @@ export function generateHtmlReport(
     timeStyle: 'medium',
   });
 
-  const safeJson = JSON.stringify(jobs).replace(/</g, '\\u003c');
+  const sortedJobs = sortJobsByDateDesc(jobs, now);
+  const safeJson = JSON.stringify(sortedJobs).replace(/</g, '\\u003c');
 
   const html = template
     .replaceAll('{{TITLE}}', () => escapeHtmlText(title))
