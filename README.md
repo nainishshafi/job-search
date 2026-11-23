@@ -45,6 +45,12 @@ Run via `node --import tsx src/cli.ts <command>` (TypeScript via `tsx`) or `node
 > **Note:** Avoid `npm run dev -- <command> --flag ...` because `npm` strips `--flag` options before forwarding arguments to `tsx`.
 
 ```powershell
+# Search Java, C#, .NET, and Python across all registered sources and write one 7-day HTML report
+node --import tsx src/cli.ts full
+
+# Override the default keyword list and run one search before generating the report
+node --import tsx src/cli.ts full --query "Python"
+
 # Search all registered sources (gh, lv, mcf, js)
 node --import tsx src/cli.ts search --query "Java" --limit 50
 

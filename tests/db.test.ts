@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, it } from 'node:test';
+import { handleFull } from '../src/cli/commands.js';
 import {
   getKnownExternalIds,
   getStats,
@@ -37,6 +41,45 @@ function makeJob(overrides: Partial<JobListing> = {}): JobListing {
 }
 
 describe('SQLite job tracker', () => {
+  for (const query of [undefined, '  Python  ']) {
+    it(`writes one combined full report with ${query ? 'a query override' : 'all default queries'}`, async (t) => {
+      const db = openDatabase(':memory:');
+      const dir = mkdtempSync(path.join(tmpdir(), 'job-search-full-'));
+      t.after(() => db.close());
+      t.after(() => rmSync(dir, { recursive: true, force: true }));
+      t.mock.method(console, 'log', () => {});
+      t.mock.method(console, 'table', () => {});
+      const out = path.join(dir, 'jobs.html');
+      const queries: string[] = [];
+
+      const exitCode = await handleFull(db, { query, out, sources: 'mcf', limit: '3' }, {
+        mycareersfuture: async ({ query, limit }) => {
+          queries.push(query);
+          assert.equal(limit, 3);
+          return {
+            jobs: [
+              makeJob({ externalId: 'shared', title: 'Shared role', postedAt: '1d ago' }),
+              makeJob({ externalId: query, title: `${query} Engineer`, postedAt: '1d ago' }),
+            ],
+          };
+        },
+      });
+
+      const expected = query ? ['Python'] : ['Java', 'C#', '.NET', 'Python'];
+      assert.equal(exitCode, 0);
+      assert.deepEqual(queries, expected);
+      assert.deepEqual(readdirSync(dir), ['jobs.html']);
+      const html = readFileSync(out, 'utf8');
+      const data = html.match(/<script id="jobs-data" type="application\/json">(.*?)<\/script>/s);
+      assert.ok(data);
+      const jobs = JSON.parse(data[1]) as Array<{ title: string }>;
+      assert.deepEqual(
+        jobs.map(({ title }) => title).sort(),
+        [...expected.map((term) => `${term} Engineer`), 'Shared role'].sort(),
+      );
+    });
+  }
+
   it('deduplicates re-runs and preserves user status and notes', () => {
     const db = openDatabase(':memory:');
     try {

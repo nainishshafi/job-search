@@ -1,4 +1,4 @@
-import { DEFAULT_DB_PATH, parseCliArgs } from './cli/args.js';
+import { DEFAULT_DB_PATH, DEFAULT_FULL_QUERIES, parseCliArgs } from './cli/args.js';
 import { DB_COMMANDS, handleDiscover } from './cli/commands.js';
 import { openDatabase } from './db/client.js';
 import { SOURCE_REGISTRY } from './sources/registry.js';
@@ -12,7 +12,8 @@ function printHelp(): void {
 Registered sources: ${sources}
 
 Commands:
-  full      [--query "Java"] [--sources <list>] [--limit 50] [--days 7] [--out path] [--db path]
+  full      [--query <text>] [--sources <list>] [--limit 50] [--days 7] [--out path] [--db path]
+            Searches ${DEFAULT_FULL_QUERIES.join(', ')} by default and writes one combined report.
   search    --query <text> [--sources <list>] [--limit 20] [--db path]
   list      [--status new|saved|applied|...] [--source <id>] [--search text] [--limit 25] [--json] [--db path]
   report    [--status new|saved|applied|...] [--source <id>] [--search text] [--days 7] [--limit 500] [--out path] [--db path]

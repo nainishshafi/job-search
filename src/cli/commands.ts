@@ -7,6 +7,7 @@ import { resolveSourceIds } from '../sources/registry.js';
 import type { JobSourceName, JobStatus } from '../sources/types.js';
 import {
   type CliValues,
+  DEFAULT_FULL_QUERIES,
   VALID_STATUSES,
   parseFilterArgs,
   parsePositiveIntArg,
@@ -86,11 +87,13 @@ export async function handleDiscover(values: CliValues): Promise<number> {
   return 0;
 }
 
-async function handleFull(
+export async function handleFull(
   db: Database.Database,
   values: CliValues,
+  fetchers?: Parameters<typeof runSearch>[1]['fetchers'],
 ): Promise<number> {
-  const query = values.query?.trim() || 'Java';
+  const queryOverride = values.query?.trim();
+  const queries = queryOverride ? [queryOverride] : DEFAULT_FULL_QUERIES;
   const limitParsed = parsePositiveIntArg('limit', values.limit, 100);
   if (!limitParsed.ok) {
     console.error(limitParsed.error);
@@ -109,12 +112,18 @@ async function handleFull(
     return 1;
   }
 
-  const reports = await runSearch(db, {
-    query,
-    sources,
-    limit: limitParsed.value ?? 50,
-  });
-  console.table(reports);
+  let failed = false;
+  for (const query of queries) {
+    console.log(`Searching for ${query}:`);
+    const reports = await runSearch(db, {
+      query,
+      sources,
+      limit: limitParsed.value ?? 50,
+      fetchers,
+    });
+    console.table(reports);
+    if (reports.some((r) => r.status === 'failed')) failed = true;
+  }
   printStats(db);
   buildAndWriteReport(db, {
     status: 'new',
@@ -122,7 +131,7 @@ async function handleFull(
     limit: 500,
     outPath: values.out,
   });
-  return reports.some((r) => r.status === 'failed') ? 1 : 0;
+  return failed ? 1 : 0;
 }
 
 async function handleSearch(

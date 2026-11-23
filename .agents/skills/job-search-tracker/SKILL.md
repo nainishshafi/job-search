@@ -6,7 +6,7 @@ description: >-
   search", "what are the new jobs", "check new jobs", "list saved/applied
   jobs", "search for jobs", "update job status", "job stats", or "discover job
   boards".
-version: 1.2.0
+version: 1.3.0
 ---
 
 # Job Search Tracker
@@ -19,13 +19,13 @@ Use the project CLI (`src/cli.ts`) to inspect, search, and update job listings s
 
 ### 1. Run Full ("run full" / "full job search")
 
-Single-command pipeline (searches all sources, prints status/source stats + recent runs, and generates the 7-day HTML report):
+Search Java, C#, .NET, and Python across all configured sources, print stats and recent runs, and generate one combined 7-day HTML report:
 
 ```powershell
 node --import tsx src/cli.ts full
 ```
 
-- Optional flags: `--query "Java"`, `--limit 50`, `--days 7`, `--sources <list>`, `--out <path>`, `--db <path>`.
+- Use `--query "Python"` to run just one search. Other optional flags: `--limit 50` (per source and keyword), `--days 7`, `--sources <list>`, `--out <path>`, `--db <path>`.
 - Live scraping requires outbound network access (`BypassSandbox: true` if sandbox blocks network).
 - Do not run `--help`, `package.json` checks, or ad-hoc SQLite/PowerShell queries.
 - Verify exit code `0` and `Report generated (... jobs): <path>`, then reply concisely with the scrape summary, `Jobs by source` counts (`new_count` + `latest_last_seen`), and a clickable `file:///` link to the HTML report.

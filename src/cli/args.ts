@@ -4,6 +4,7 @@ import { resolveSourceId } from '../sources/registry.js';
 import type { JobSourceName, JobStatus } from '../sources/types.js';
 
 export const DEFAULT_DB_PATH = path.resolve(process.cwd(), 'data', 'jobs.db');
+export const DEFAULT_FULL_QUERIES = ['Java', 'C#', '.NET', 'Python'] as const;
 
 export const VALID_STATUSES = new Set<JobStatus>([
   'new',
