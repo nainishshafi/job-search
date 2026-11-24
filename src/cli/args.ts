@@ -31,6 +31,7 @@ export interface CliValues {
   json?: boolean;
   days?: string;
   out?: string;
+  input?: string;
 }
 
 export function parseCliArgs(argv: string[]): {
@@ -60,6 +61,7 @@ export function parseCliArgs(argv: string[]): {
       json: { type: 'boolean', default: false },
       days: { type: 'string' },
       out: { type: 'string' },
+      input: { type: 'string' },
     },
     allowPositionals: true,
   });

@@ -154,13 +154,20 @@ describe('HTML report generator', () => {
         salary_currency: 'SGD',
         salary_interval: 'monthly',
         employment_type: 'Full-time',
-        description_snippet: 'Pay $& or $$bonus',
+        description_snippet: 'Work on a government project. Pay $& or $$bonus',
         skills_json: '[]',
         posted_at: '1h ago',
         first_seen_at: '2026-11-18 05:00:00',
         last_seen_at: '2026-11-18 05:00:00',
         status: 'new',
         notes: null,
+        project_type: 'Government / public sector',
+        project_probability: 83,
+        project_evidence: 'government project',
+        project_analyzed_at: '2026-11-18T12:00:00Z',
+        project_analysis_method: 'llm',
+        project_analysis_model: 'test-model',
+        project_reasoning: 'Model reasoning </script><script>alert(2)</script>',
       },
     ];
 
@@ -177,6 +184,12 @@ describe('HTML report generator', () => {
       assert.ok(!html.includes('</script><script>alert(1)</script>'));
       assert.ok(html.includes('\\u003c/script>'));
       assert.ok(html.includes('Acme $$ & $& Corp'));
+      assert.ok(html.includes('<th>Project Likelihood</th>'));
+      assert.ok(html.includes('"projectEstimate":{"label":"Government / public sector","score":83,"evidence":"government project"'));
+      assert.ok(!html.includes('</script><script>alert(2)</script>'));
+      jobs[0].project_analysis_method = null;
+      const pending = generateHtmlReport(jobs, { outPath });
+      assert.ok(fs.readFileSync(pending, 'utf8').includes('"label":"Not analyzed","score":null'));
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

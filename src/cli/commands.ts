@@ -1,5 +1,8 @@
 import type Database from 'better-sqlite3';
+import fs from 'node:fs';
+import path from 'node:path';
 import { getStats, listJobs, updateJobStatus } from '../db/client.js';
+import { getPendingProjectJobs, projectInputHash, saveLlmProjectReview } from '../db/project-analysis.js';
 import { generateHtmlReport, isWithinDays } from '../report/html.js';
 import { runSearch } from '../runner.js';
 import { discoverBoards } from '../sources/api/discover.js';
@@ -260,7 +263,41 @@ function handleStats(db: Database.Database): number {
   return 0;
 }
 
+function handleAnalyze(db: Database.Database, values: CliValues): number {
+  const parsed = parsePositiveIntArg('days', values.days);
+  if (!parsed.ok) {
+    console.error(parsed.error);
+    return 1;
+  }
+  const days = parsed.value ?? 7;
+  if (!values.input) {
+    const snapshotAt = new Date().toISOString();
+    const jobs = getPendingProjectJobs(db, days, new Date(snapshotAt));
+    const outPath = path.resolve(values.out ?? 'data/reports/llm-review-input.json');
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, JSON.stringify({
+      snapshotAt, days, jobs: jobs.map((job) => ({
+        id: job.id, input_hash: projectInputHash(job), title: job.title,
+        company: job.company, description: job.description_snippet,
+      })),
+    }, null, 2));
+    console.log(`Exported ${jobs.length} pending jobs for LLM review: ${outPath}`);
+    console.log('Database unchanged. Import completed LLM decisions with analyze --input <review.json>.');
+    return 0;
+  }
+  const result = saveLlmProjectReview(db, JSON.parse(fs.readFileSync(values.input, 'utf8')));
+  console.log(`Updated ${result.updatedCount} pending jobs with validated LLM decisions; preserved ${result.jobs.length - result.updatedCount} valid assessments.`);
+  console.table(Object.entries(result.counts).map(([project_type, count]) => ({ project_type, count })));
+  const outPath = generateHtmlReport(result.jobs, {
+    filterSummary: `${result.jobs.length} job(s) • all statuses • persisted LLM estimates`,
+    outPath: values.out,
+  });
+  console.log(`Report generated (${result.jobs.length} jobs): ${outPath}`);
+  return 0;
+}
+
 export const DB_COMMANDS: Record<string, DbCommandHandler> = {
+  analyze: handleAnalyze,
   full: handleFull,
   search: handleSearch,
   list: handleList,

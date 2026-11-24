@@ -32,6 +32,28 @@ export interface StoredJob {
   last_seen_at: string;
   status: JobStatus;
   notes: string | null;
+  project_type?: string | null;
+  project_probability?: number | null;
+  project_evidence?: string | null;
+  project_analyzed_at?: string | null;
+  project_analysis_method?: string | null;
+  project_analysis_model?: string | null;
+  project_reasoning?: string | null;
+}
+
+export function hasValidProjectAssessment(job: StoredJob): boolean {
+  const label = job.project_type;
+  const score = job.project_probability;
+  const evidence = job.project_evidence;
+  return job.project_analysis_method === 'llm' &&
+    typeof job.project_analyzed_at === 'string' && Number.isFinite(Date.parse(job.project_analyzed_at)) &&
+    typeof job.project_analysis_model === 'string' && !!job.project_analysis_model.trim() &&
+    typeof label === 'string' && !!label.trim() &&
+    typeof job.project_reasoning === 'string' && !!job.project_reasoning.trim() &&
+    typeof evidence === 'string' && !!evidence.trim() &&
+    [job.title, job.company, job.description_snippet ?? ''].some((text) => text.includes(evidence)) &&
+    (label === 'Unclear' ? score === null : typeof score === 'number' &&
+      Number.isInteger(score) && score >= 0 && score <= 100);
 }
 
 export interface UpsertSummary {
@@ -60,6 +82,22 @@ export function openDatabase(dbPath: string): Database.Database {
 
   const schemaSql = fs.readFileSync(SCHEMA_PATH, 'utf8');
   db.exec(schemaSql);
+  const columns = new Set(
+    (db.pragma('table_info(jobs)') as Array<{ name: string }>).map((column) => column.name),
+  );
+  db.transaction(() => {
+    for (const [name, definition] of Object.entries({
+      project_type: 'TEXT',
+      project_probability: 'INTEGER CHECK (project_probability BETWEEN 0 AND 100)',
+      project_evidence: 'TEXT',
+      project_analyzed_at: 'TEXT',
+      project_analysis_method: 'TEXT',
+      project_analysis_model: 'TEXT',
+      project_reasoning: 'TEXT',
+    })) {
+      if (!columns.has(name)) db.exec(`ALTER TABLE jobs ADD COLUMN ${name} ${definition}`);
+    }
+  })();
   return db;
 }
 
@@ -98,6 +136,11 @@ export function upsertJobs(
       description_snippet = COALESCE(excluded.description_snippet, jobs.description_snippet),
       skills_json = COALESCE(excluded.skills_json, jobs.skills_json),
       posted_at = COALESCE(excluded.posted_at, jobs.posted_at),
+      project_analyzed_at = CASE
+        WHEN excluded.title IS NOT jobs.title
+          OR excluded.company IS NOT jobs.company
+          OR COALESCE(excluded.description_snippet, jobs.description_snippet) IS NOT jobs.description_snippet
+        THEN NULL ELSE jobs.project_analyzed_at END,
       last_seen_at = datetime('now')
   `);
 

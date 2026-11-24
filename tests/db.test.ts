@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { handleFull } from '../src/cli/commands.js';
+import { getPendingProjectJobs, getRecentProjectJobs, projectInputHash, saveLlmProjectReview } from '../src/db/project-analysis.js';
 import {
   getKnownExternalIds,
   getStats,
@@ -41,6 +42,133 @@ function makeJob(overrides: Partial<JobListing> = {}): JobListing {
 }
 
 describe('SQLite job tracker', () => {
+  it('persists recent estimates across all statuses and beyond 500 rows, preserving tracker data', (t) => {
+    const db = openDatabase(':memory:');
+    t.after(() => db.close());
+    const now = new Date('2026-11-23T12:00:00Z');
+    upsertJobs(db, Array.from({ length: 503 }, (_, i) => makeJob({
+      externalId: `recent-${i}`,
+      descriptionSnippet: 'Build applications for a government agency.',
+      postedAt: '2026-11-23',
+    })));
+    upsertJobs(db, [
+      makeJob({ externalId: 'old', postedAt: '2026-11-15' }),
+      makeJob({ externalId: 'relative-old', postedAt: '8d ago' }),
+      makeJob({ externalId: 'undated', postedAt: null, descriptionSnippet: null }),
+    ]);
+    db.prepare("UPDATE jobs SET last_seen_at = '2026-11-23 10:00:00' WHERE source = ?").run('mycareersfuture');
+    const first = listJobs(db, { search: 'government agency' })[0];
+    updateJobStatus(db, first.id, 'applied', 'Keep these notes');
+    const selected = getRecentProjectJobs(db, 7, now);
+    const review = {
+      model: 'test-model', snapshotAt: now.toISOString(), days: 7,
+      decisions: selected.map((job) => ({
+        id: job.id, input_hash: projectInputHash(job),
+        label: job.description_snippet ? 'Government / public sector' : 'Unclear',
+        score: job.description_snippet ? 83 : null,
+        evidence: job.description_snippet ?? job.title,
+        reasoning: 'Explicit test-supplied decision; importer must preserve the chosen confidence.',
+      })),
+    };
+    assert.throws(() => saveLlmProjectReview(db, { ...review, decisions: review.decisions.slice(1) }), /every pending recent job/);
+    assert.equal((db.prepare('SELECT COUNT(*) as count FROM jobs WHERE project_analyzed_at IS NOT NULL').get() as { count: number }).count, 0);
+    assert.throws(() => saveLlmProjectReview(db, {
+      ...review, decisions: review.decisions.map((d, i) => i ? d : { ...d, evidence: 'Invented government client' }),
+    }), /quote the stored listing/);
+    assert.throws(() => saveLlmProjectReview(db, {
+      ...review, decisions: review.decisions.map((d, i) => i ? d : { ...d, score: 101 }),
+    }), /Invalid LLM decision/);
+    const result = saveLlmProjectReview(db, review);
+    assert.equal(result.updatedCount, 504);
+    assert.equal(result.jobs.length, 504);
+    assert.equal(result.counts['Government / public sector'], 503);
+    assert.equal(result.counts.Unclear, 1);
+    const stored = db.prepare('SELECT * FROM jobs WHERE id = ?').get(first.id) as Record<string, unknown>;
+    assert.equal(stored.project_probability, 83);
+    assert.equal(stored.project_evidence, 'Build applications for a government agency.');
+    assert.equal(stored.project_analysis_method, 'llm');
+    assert.equal(stored.project_analysis_model, 'test-model');
+    assert.ok(stored.project_analyzed_at);
+    assert.equal(stored.status, 'applied');
+    assert.equal(stored.notes, 'Keep these notes');
+    assert.equal(stored.last_seen_at, '2026-11-23 10:00:00');
+    assert.equal(getPendingProjectJobs(db, 7, now).length, 0);
+    assert.throws(() => saveLlmProjectReview(db, review), /already analyzed/);
+    const old = db.prepare('SELECT project_analyzed_at FROM jobs WHERE external_id = ?').get('old') as { project_analyzed_at: string | null };
+    assert.equal(old.project_analyzed_at, null);
+    upsertJobs(db, [makeJob({ externalId: first.external_id, title: 'Changed title', postedAt: '2026-11-23' })]);
+    const changed = db.prepare('SELECT project_analyzed_at FROM jobs WHERE id = ?').get(first.id) as { project_analyzed_at: string | null };
+    assert.equal(changed.project_analyzed_at, null);
+    assert.throws(() => saveLlmProjectReview(db, review), /changed job/);
+  });
+
+  it('reviews only missing or invalidated assessments and preserves valid results including Unclear', (t) => {
+    const db = openDatabase(':memory:');
+    t.after(() => db.close());
+    const now = new Date('2026-11-23T12:00:00Z');
+    upsertJobs(db, ['valid', 'unclear', 'changed', 'legacy', 'missing'].map((externalId) =>
+      makeJob({ externalId, postedAt: '2026-11-23' })));
+    const review = {
+      model: 'original-model', snapshotAt: now.toISOString(), days: 7,
+      decisions: getPendingProjectJobs(db, 7, now).map((job) => ({
+        id: job.id, input_hash: projectInputHash(job),
+        label: job.external_id === 'unclear' ? 'Unclear' : 'Technology',
+        score: job.external_id === 'unclear' ? null : 72,
+        evidence: job.title, reasoning: 'Original assessment supplied by the test.',
+      })),
+    };
+    saveLlmProjectReview(db, review);
+    // A routine refresh must not invalidate a completed assessment.
+    upsertJobs(db, [makeJob({ externalId: 'valid', postedAt: '2026-11-23' })]);
+    const preserved = db.prepare("SELECT * FROM jobs WHERE external_id IN ('valid', 'unclear') ORDER BY id").all();
+    upsertJobs(db, [makeJob({ externalId: 'changed', title: 'New project title', postedAt: '2026-11-23' })]);
+    db.prepare("UPDATE jobs SET project_analysis_method = 'rules' WHERE external_id = ?").run('legacy');
+    db.prepare('UPDATE jobs SET project_analysis_model = NULL WHERE external_id = ?').run('missing');
+    const pending = getPendingProjectJobs(db, 7, now);
+    assert.deepEqual(pending.map((job) => job.external_id).sort(), ['changed', 'legacy', 'missing']);
+    const incremental = {
+      ...review, model: 'new-model',
+      decisions: pending.map((job) => ({
+        id: job.id, input_hash: projectInputHash(job), label: 'Unclear', score: null,
+        evidence: job.title, reasoning: 'Listing does not establish the project domain.',
+      })),
+    };
+    assert.throws(() => saveLlmProjectReview(db, {
+      ...incremental, decisions: incremental.decisions.slice(1),
+    }), /every pending recent job/);
+    assert.throws(() => saveLlmProjectReview(db, {
+      ...incremental, decisions: [...incremental.decisions, review.decisions[0]],
+    }), /already analyzed/);
+    const result = saveLlmProjectReview(db, incremental);
+    assert.equal(result.updatedCount, 3);
+    assert.equal(result.jobs.length, 5);
+    assert.deepEqual(result.counts, { Unclear: 3 });
+    assert.deepEqual(db.prepare("SELECT * FROM jobs WHERE external_id IN ('valid', 'unclear') ORDER BY id").all(), preserved);
+    assert.equal(getPendingProjectJobs(db, 7, now).length, 0);
+    const after = db.prepare('SELECT * FROM jobs ORDER BY id').all();
+    const noOp = saveLlmProjectReview(db, { ...incremental, decisions: [] });
+    assert.equal(noOp.updatedCount, 0);
+    assert.equal(noOp.jobs.length, 5);
+    assert.deepEqual(db.prepare('SELECT * FROM jobs ORDER BY id').all(), after);
+  });
+
+  it('migrates an existing database and can reopen it without adding duplicate columns', (t) => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'job-analysis-migration-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const dbPath = path.join(dir, 'jobs.db');
+    const db = openDatabase(dbPath);
+    upsertJobs(db, [makeJob()]);
+    db.close();
+    const reopened = openDatabase(dbPath);
+    try {
+      assert.equal(listJobs(reopened).length, 1);
+      const columns = reopened.pragma('table_info(jobs)') as Array<{ name: string }>;
+      assert.equal(columns.filter(({ name }) => name === 'project_probability').length, 1);
+    } finally {
+      reopened.close();
+    }
+  });
+
   for (const query of [undefined, '  Python  ']) {
     it(`writes one combined full report with ${query ? 'a query override' : 'all default queries'}`, async (t) => {
       const db = openDatabase(':memory:');

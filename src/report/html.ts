@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { StoredJob } from '../db/client.js';
+import { hasValidProjectAssessment, type StoredJob } from '../db/client.js';
 
 export interface HtmlReportOptions {
   title?: string;
@@ -166,7 +166,13 @@ export function generateHtmlReport(
     timeStyle: 'medium',
   });
 
-  const sortedJobs = sortJobsByDateDesc(jobs, now);
+  const sortedJobs = sortJobsByDateDesc(jobs, now).map((job) => ({
+    ...job,
+    projectEstimate: hasValidProjectAssessment(job)
+      ? { label: job.project_type, score: job.project_probability ?? null, evidence: job.project_evidence,
+          reasoning: job.project_reasoning, model: job.project_analysis_model }
+      : { label: 'Not analyzed', score: null, evidence: 'Awaiting LLM review', reasoning: '', model: '' },
+  }));
   const safeJson = JSON.stringify(sortedJobs).replace(/</g, '\\u003c');
 
   const html = template

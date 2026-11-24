@@ -12,6 +12,8 @@ function printHelp(): void {
 Registered sources: ${sources}
 
 Commands:
+  analyze   [--days 7] [--input review.json] [--out path] [--db path]
+            Exports jobs for LLM review, or stores a completed LLM review. No automatic scoring.
   full      [--query <text>] [--sources <list>] [--limit 50] [--days 7] [--out path] [--db path]
             Searches ${DEFAULT_FULL_QUERIES.join(', ')} by default and writes one combined report.
   search    --query <text> [--sources <list>] [--limit 20] [--db path]

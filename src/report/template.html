@@ -198,9 +198,10 @@
     </header>
 
     <section class="stats" id="stats"></section>
+    <p class="meta">Project likelihood is an LLM judgment from the stored title, employer and available description. Percentages express subjective confidence, not measured probabilities or a confirmed client. Core banking does not imply private banking.</p>
 
     <section class="controls">
-      <input type="search" id="searchInput" placeholder="Filter by title, company, location, or description..." />
+      <input type="search" id="searchInput" placeholder="Filter by title, company, location, description, or project type..." />
       <div class="pills" id="sourcePills"></div>
       <select id="salaryFilter">
         <option value="all">All Salaries</option>
@@ -215,6 +216,7 @@
             <th>ID</th>
             <th>Source</th>
             <th>Role &amp; Details</th>
+            <th>Project Likelihood</th>
             <th>Company</th>
             <th>Salary</th>
             <th>Posted</th>
@@ -303,7 +305,7 @@
         if (activeSource !== 'all' && j.source !== activeSource) return false;
         if (sal === 'with-salary' && j.salary_min === null && j.salary_max === null) return false;
         if (q) {
-          const hay = `${j.title} ${j.company} ${j.location || ''} ${j.description_snippet || ''}`.toLowerCase();
+          const hay = `${j.title} ${j.company} ${j.location || ''} ${j.description_snippet || ''} ${j.projectEstimate.label}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
         return true;
@@ -320,6 +322,8 @@
       bodyEl.innerHTML = filtered.map(j => {
         const badgeClass = `badge-${escapeHtml(j.source)}`;
         const snippet = j.description_snippet ? `<div class="snippet">${escapeHtml(j.description_snippet)}</div>` : '';
+        const { label, score, evidence, reasoning, model } = j.projectEstimate;
+        const estimate = score === null ? label : `${score}% estimated: ${label}`;
         return `
           <tr>
             <td>#${j.id}</td>
@@ -327,6 +331,12 @@
             <td>
               <a class="job-link" href="${escapeHtml(safeHref(j.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(j.title)}</a>
               ${snippet}
+            </td>
+            <td>
+              <strong>${escapeHtml(estimate)}</strong>
+              <div class="meta">${escapeHtml(evidence)}</div>
+              <div class="meta">${escapeHtml(reasoning)}</div>
+              <div class="meta">${model ? `LLM: ${escapeHtml(model)}` : ''}</div>
             </td>
             <td>${escapeHtml(j.company)}</td>
             <td>${formatSalary(j)}</td>
