@@ -16,3 +16,4 @@ test-results/
 .DS_Store
 Thumbs.db
 .orchestrator/
+/run-job-search.bat

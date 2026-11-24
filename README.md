@@ -67,11 +67,36 @@ node --import tsx src/cli.ts update --id 1 --status applied --notes "Applied via
 # View status counts and recent scrape runs
 node --import tsx src/cli.ts stats
 
+# Export only recent jobs with missing or invalidated assessments for LLM review
+node --import tsx src/cli.ts analyze --days 7 --out data/reports/llm-review-input.json
+
+# Save completed LLM decisions and generate a report from the stored results
+node --import tsx src/cli.ts analyze --input data/reports/llm-project-review.json
+
 # Discover and validate more Singapore ATS company boards into config/boards.json
 node --import tsx src/cli.ts discover
 node --import tsx src/cli.ts discover --url "https://raw.githubusercontent.com/..."
 node --import tsx src/cli.ts discover --tokens "gh:company1,lv:company2"
 ```
+
+Project analysis uses LLM decisions, with no keyword classifier or automatic confidence scoring.
+The exported input contains `snapshotAt`, `days`, and each job's `id`, `input_hash`,
+`title`, `company`, and `description`. The completed review must contain `model`,
+the same `snapshotAt` and `days`, and a `decisions` array covering every exported pending job.
+Each decision supplies `id`, `input_hash`, `label`, `score` (0–100, or `null` for
+`Unclear`), an exact source quote in `evidence`, and `reasoning`.
+The importer validates complete coverage, unchanged input, quotes and score ranges
+before writing in one transaction. It updates only pending records and preserves
+every valid existing assessment, including its model and analysis timestamp.
+Validity requires LLM method, a valid timestamp, nonempty model, label and reasoning,
+an exact source quote, and a valid score (including `Unclear` with `null`).
+Pending membership is rechecked at import; an intervening scrape or review can require
+a fresh export. An empty review is accepted only when no pending jobs remain.
+The final report includes all recent records, both preserved and newly assessed.
+It records the model and method with each new result.
+Percentages express subjective confidence in the named project domain, not calibrated
+probabilities. New jobs and jobs whose title, employer or description changes await
+another LLM review; scraping alone does not invoke a model.
 
 ---
 
