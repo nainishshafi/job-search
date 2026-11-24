@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { hasValidProjectAssessment, type StoredJob } from '../db/client.js';
+import { readCompanyResearch } from '../db/company-research.js';
 
 export interface HtmlReportOptions {
   title?: string;
@@ -168,6 +169,7 @@ export function generateHtmlReport(
 
   const sortedJobs = sortJobsByDateDesc(jobs, now).map((job) => ({
     ...job,
+    companyResearch: readCompanyResearch(job.company_research_json, job.company),
     projectEstimate: hasValidProjectAssessment(job)
       ? { label: job.project_type, score: job.project_probability ?? null, evidence: job.project_evidence,
           reasoning: job.project_reasoning, model: job.project_analysis_model }

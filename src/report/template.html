@@ -180,6 +180,56 @@
     .badge-lever { background: var(--accent-soft); color: var(--accent); }
     .salary { color: var(--green); font-weight: 600; white-space: nowrap; }
     .na { color: var(--muted); }
+    .company-preview {
+      width: 210px;
+      margin: 0 0 8px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+    .research-button, .dialog-close {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .research-dialog {
+      width: min(720px, calc(100% - 32px));
+      max-height: calc(100dvh - 32px);
+      padding: 0;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow-y: auto;
+      overflow-wrap: anywhere;
+    }
+    .research-dialog::backdrop { background: rgba(0, 0, 0, 0.7); }
+    .dialog-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 20px;
+    }
+    .dialog-header h2 { margin: 0; font-size: 1.2rem; }
+    .dialog-close { flex-shrink: 0; }
+    .dialog-content { padding: 0 20px 20px; }
+    .dialog-content h3 { margin: 20px 0 8px; font-size: 1rem; }
+    .dialog-content p { margin: 8px 0; }
+    .research-source { margin-bottom: 14px; }
+    body:has(.research-dialog[open]) { overflow: hidden; }
     .empty {
       text-align: center;
       padding: 36px;
@@ -218,6 +268,7 @@
             <th>Role &amp; Details</th>
             <th>Project Likelihood</th>
             <th>Company</th>
+            <th>Company Research</th>
             <th>Salary</th>
             <th>Posted</th>
             <th>Status</th>
@@ -229,6 +280,14 @@
     </div>
   </div>
 
+  <dialog id="researchDialog" class="research-dialog" aria-labelledby="researchDialogTitle">
+    <div class="dialog-header">
+      <h2 id="researchDialogTitle"></h2>
+      <button type="button" id="closeResearchDialog" class="dialog-close" autofocus>Close</button>
+    </div>
+    <div id="researchDialogContent" class="dialog-content"></div>
+  </dialog>
+
   <script id="jobs-data" type="application/json">{{JOBS_JSON}}</script>
   <script>
     const jobs = JSON.parse(document.getElementById('jobs-data').textContent);
@@ -238,6 +297,9 @@
     const emptyEl = document.getElementById('emptyState');
     const searchInput = document.getElementById('searchInput');
     const salaryFilter = document.getElementById('salaryFilter');
+    const researchDialog = document.getElementById('researchDialog');
+    const researchDialogTitle = document.getElementById('researchDialogTitle');
+    const researchDialogContent = document.getElementById('researchDialogContent');
 
     let activeSource = 'all';
 
@@ -265,6 +327,36 @@
         : `${(j.salary_min ?? j.salary_max).toLocaleString()}`;
       const interval = j.salary_interval ? `/${escapeHtml(j.salary_interval)}` : '';
       return `<span class="salary">${escapeHtml(j.salary_currency)} ${range}${interval}</span>`;
+    }
+
+    function renderCompanyPreview(job) {
+      const research = job.companyResearch;
+      if (!research) return '<span class="na">Not researched</span>';
+      return `<p class="company-preview">${escapeHtml(research.summary)}</p>
+        <button type="button" class="research-button" data-research-id="${job.id}" aria-haspopup="dialog"
+          aria-label="View company research for ${escapeHtml(job.company)}">View details</button>`;
+    }
+
+    function renderCompanyResearch(research) {
+      if (!research) return '<span class="na">Not researched</span>';
+      const g = research.glassdoor;
+      const f = research.founders;
+      const rating = g.rating === null ? '' : ` · ${g.rating}/5`;
+      const reviews = g.reviewCount === null ? '' : ` · ${g.reviewCount} reviews`;
+      const sources = research.sources.map(s =>
+        `<div class="research-source"><a class="job-link" href="${escapeHtml(safeHref(s.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title)}</a><p class="meta">${escapeHtml(s.evidence)}</p></div>`).join('');
+      return `<p>${escapeHtml(research.summary)}</p>
+        <p class="meta">${escapeHtml(research.identity)}</p>
+        <div class="meta">Company size: ${escapeHtml(research.size)}</div>
+        <h3>Glassdoor reviews</h3>
+        <p class="meta">${escapeHtml(g.status.replaceAll('_', ' ') + rating + reviews)}</p>
+        <p>${escapeHtml(g.summary)}</p>
+        <h3>Founders</h3>
+        <p class="meta">${escapeHtml(f.status.replaceAll('_', ' '))}${f.names.length ? ` · ${escapeHtml(f.names.join(', '))}` : ''}</p>
+        <p>${escapeHtml(f.summary)}</p>
+        <h3>Sources</h3>
+        ${sources || '<p class="meta">No sources found.</p>'}
+        <p class="meta">Researched: ${escapeHtml(research.researchedAt)} · LLM: ${escapeHtml(research.model)}</p>`;
     }
 
     const sources = Array.from(new Set(jobs.map(j => j.source)));
@@ -305,7 +397,7 @@
         if (activeSource !== 'all' && j.source !== activeSource) return false;
         if (sal === 'with-salary' && j.salary_min === null && j.salary_max === null) return false;
         if (q) {
-          const hay = `${j.title} ${j.company} ${j.location || ''} ${j.description_snippet || ''} ${j.projectEstimate.label}`.toLowerCase();
+          const hay = `${j.title} ${j.company} ${j.location || ''} ${j.description_snippet || ''} ${j.projectEstimate.label} ${j.companyResearch ? JSON.stringify(j.companyResearch) : ''}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
         return true;
@@ -339,6 +431,7 @@
               <div class="meta">${model ? `LLM: ${escapeHtml(model)}` : ''}</div>
             </td>
             <td>${escapeHtml(j.company)}</td>
+            <td>${renderCompanyPreview(j)}</td>
             <td>${formatSalary(j)}</td>
             <td>${escapeHtml(j.posted_at || 'N/A')}</td>
             <td>${escapeHtml(j.status)}</td>
@@ -349,6 +442,23 @@
 
     searchInput.addEventListener('input', render);
     salaryFilter.addEventListener('change', render);
+    bodyEl.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-research-id]');
+      if (!button) return;
+      const job = jobs.find(j => String(j.id) === button.dataset.researchId);
+      if (!job?.companyResearch) return;
+      researchDialogTitle.textContent = job.company;
+      researchDialogContent.innerHTML = renderCompanyResearch(job.companyResearch);
+      researchDialog.showModal();
+      researchDialog.scrollTop = 0;
+    });
+    document.getElementById('closeResearchDialog').addEventListener('click', () => researchDialog.close());
+    researchDialog.addEventListener('click', (event) => {
+      const bounds = researchDialog.getBoundingClientRect();
+      if (event.target === researchDialog &&
+          (event.clientX < bounds.left || event.clientX > bounds.right ||
+           event.clientY < bounds.top || event.clientY > bounds.bottom)) researchDialog.close();
+    });
     renderPills();
     render();
   </script>

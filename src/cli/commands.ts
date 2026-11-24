@@ -3,9 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getStats, listJobs, updateJobStatus } from '../db/client.js';
 import { getPendingProjectJobs, projectInputHash, saveLlmProjectReview } from '../db/project-analysis.js';
+import { getPendingCompanies, saveCompanyReview } from '../db/company-research.js';
 import { generateHtmlReport, isWithinDays } from '../report/html.js';
 import { runSearch } from '../runner.js';
 import { discoverBoards } from '../sources/api/discover.js';
+import { readCompanyPage } from '../sources/playwright/company-pages.js';
 import { resolveSourceIds } from '../sources/registry.js';
 import type { JobSourceName, JobStatus } from '../sources/types.js';
 import {
@@ -296,7 +298,54 @@ function handleAnalyze(db: Database.Database, values: CliValues): number {
   return 0;
 }
 
+async function handleResearch(db: Database.Database, values: CliValues): Promise<number> {
+  if (values.url !== undefined) {
+    if (values.input || values.company || values.days) {
+      console.error('Error: research --url reads one browser page; do not combine with --input, --company or --days');
+      return 1;
+    }
+    const evidence = await readCompanyPage(values.url);
+    const json = JSON.stringify(evidence, null, 2);
+    if (values.out) {
+      const outPath = path.resolve(values.out);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, json);
+      console.log(`Browser page ${evidence.status}: ${outPath}`);
+    } else console.log(json);
+    return evidence.status === 'retrieved' ? 0 : 1;
+  }
+  const parsed = parsePositiveIntArg('days', values.days);
+  if (!parsed.ok) {
+    console.error(parsed.error);
+    return 1;
+  }
+  if (!values.input) {
+    if (values.company !== undefined && !values.company.trim()) {
+      console.error('Error: --company must be a nonempty exact employer name');
+      return 1;
+    }
+    const snapshotAt = new Date().toISOString();
+    const days = parsed.value ?? 7;
+    const companies = getPendingCompanies(db, days, new Date(snapshotAt), values.company);
+    const outPath = path.resolve(values.out ?? 'data/reports/company-research-input.json');
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, JSON.stringify({ snapshotAt, days, company: values.company, companies }, null, 2));
+    console.log(`Exported ${companies.length} pending companies for LLM web research: ${outPath}`);
+    console.log('Database unchanged. The LLM must web search company, Glassdoor, and founders for small or unknown-size employers.');
+    return 0;
+  }
+  const result = saveCompanyReview(db, JSON.parse(fs.readFileSync(values.input, 'utf8')));
+  console.log(`Researched ${result.updatedCompanies} companies; updated company research on ${result.updatedJobs} jobs. Project assessments, statuses and notes preserved.`);
+  const outPath = generateHtmlReport(result.jobs, {
+    filterSummary: `${result.jobs.length} job(s) • all statuses • persisted project assessments and company research`,
+    outPath: values.out,
+  });
+  console.log(`Report generated (${result.jobs.length} jobs): ${outPath}`);
+  return 0;
+}
+
 export const DB_COMMANDS: Record<string, DbCommandHandler> = {
+  research: handleResearch,
   analyze: handleAnalyze,
   full: handleFull,
   search: handleSearch,

@@ -32,6 +32,7 @@ export interface CliValues {
   days?: string;
   out?: string;
   input?: string;
+  company?: string;
 }
 
 export function parseCliArgs(argv: string[]): {
@@ -62,6 +63,7 @@ export function parseCliArgs(argv: string[]): {
       days: { type: 'string' },
       out: { type: 'string' },
       input: { type: 'string' },
+      company: { type: 'string' },
     },
     allowPositionals: true,
   });

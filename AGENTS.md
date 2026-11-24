@@ -6,7 +6,7 @@ When the user asks about jobs (e.g., *"what are the new jobs"*, *"job stats"*, *
 
 - Use `node --import tsx src/cli.ts <command>` (never `npm run dev -- ...`, which strips `--flag` arguments).
 - Database path defaults to `data/jobs.db`.
-- Treat "run full" as one complete agent workflow: scrape, export only recent listings with missing or invalidated assessments, review those pending listings with the LLM, import validated decisions while preserving valid results, and deliver the final report with all recent persisted assessments. Follow the skill's analysis workflow automatically after `full`; the CLI command alone only scrapes and produces a preliminary report.
+- Treat "run full" as one complete agent workflow: scrape, review/import pending recent project assessments, export pending companies, perform actual LLM web searches for company information and Glassdoor reviews plus founders for small or unknown-size employers, import cited company research, and deliver the final report with all recent persisted results. Follow workflows 6 and 7 in the skill automatically after `full`; the CLI command alone only scrapes and produces a preliminary report. Preserve valid project assessments and company research independently.
 
 ## Development Commands & Review
 

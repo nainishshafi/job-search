@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     last_seen_at        TEXT NOT NULL DEFAULT (datetime('now')),
     status              TEXT NOT NULL DEFAULT 'new',
     notes               TEXT,
+    company_research_json TEXT,
     UNIQUE(source, external_id)
 );
 

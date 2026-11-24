@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
+import { readCompanyResearch } from './company-research.js';
 import type {
   JobListing,
   JobSourceName,
@@ -39,6 +40,7 @@ export interface StoredJob {
   project_analysis_method?: string | null;
   project_analysis_model?: string | null;
   project_reasoning?: string | null;
+  company_research_json?: string | null;
 }
 
 export function hasValidProjectAssessment(job: StoredJob): boolean {
@@ -94,6 +96,7 @@ export function openDatabase(dbPath: string): Database.Database {
       project_analysis_method: 'TEXT',
       project_analysis_model: 'TEXT',
       project_reasoning: 'TEXT',
+      company_research_json: 'TEXT',
     })) {
       if (!columns.has(name)) db.exec(`ALTER TABLE jobs ADD COLUMN ${name} ${definition}`);
     }
@@ -110,18 +113,18 @@ export function upsertJobs(
   }
 
   const existsStmt = db.prepare<[string, string]>(
-    'SELECT 1 FROM jobs WHERE source = ? AND external_id = ?',
+    'SELECT company, company_research_json FROM jobs WHERE source = ? AND external_id = ?',
   );
 
   const upsertStmt = db.prepare(`
     INSERT INTO jobs (
       source, external_id, url, title, company, location,
       salary_min, salary_max, salary_currency, salary_interval,
-      employment_type, description_snippet, skills_json, posted_at
+      employment_type, description_snippet, skills_json, posted_at, company_research_json
     ) VALUES (
       @source, @externalId, @url, @title, @company, @location,
       @salaryMin, @salaryMax, @salaryCurrency, @salaryInterval,
-      @employmentType, @descriptionSnippet, @skillsJson, @postedAt
+      @employmentType, @descriptionSnippet, @skillsJson, @postedAt, @companyResearch
     )
     ON CONFLICT(source, external_id) DO UPDATE SET
       url = excluded.url,
@@ -141,15 +144,27 @@ export function upsertJobs(
           OR excluded.company IS NOT jobs.company
           OR COALESCE(excluded.description_snippet, jobs.description_snippet) IS NOT jobs.description_snippet
         THEN NULL ELSE jobs.project_analyzed_at END,
+      company_research_json = excluded.company_research_json,
       last_seen_at = datetime('now')
   `);
 
   let inserted = 0;
   let updated = 0;
+  const researchStmt = db.prepare('SELECT company_research_json FROM jobs WHERE company = ? AND company_research_json IS NOT NULL');
+  const researchCache = new Map<string, string | null>();
 
   const runBatch = db.transaction((items: JobListing[]) => {
     for (const job of items) {
-      const exists = existsStmt.get(job.source, job.externalId) !== undefined;
+      if (!researchCache.has(job.company)) {
+        const rows = researchStmt.all(job.company) as Array<{ company_research_json: string }>;
+        researchCache.set(job.company, rows.find((row) =>
+          readCompanyResearch(row.company_research_json, job.company))?.company_research_json ?? null);
+      }
+      const existing = existsStmt.get(job.source, job.externalId) as
+        { company: string; company_research_json: string | null } | undefined;
+      const companyResearch = existing?.company === job.company &&
+        readCompanyResearch(existing.company_research_json, job.company)
+        ? existing.company_research_json : researchCache.get(job.company);
       upsertStmt.run({
         source: job.source,
         externalId: job.externalId,
@@ -165,8 +180,9 @@ export function upsertJobs(
         descriptionSnippet: job.descriptionSnippet,
         skillsJson: JSON.stringify(job.skills),
         postedAt: job.postedAt,
+        companyResearch,
       });
-      if (exists) {
+      if (existing) {
         updated += 1;
       } else {
         inserted += 1;

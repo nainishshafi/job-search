@@ -12,6 +12,9 @@ function printHelp(): void {
 Registered sources: ${sources}
 
 Commands:
+  research  [--days 7] [--company <exact-name>] [--input review.json] [--out path] [--db path]
+            Exports pending companies for LLM web search, or stores cited company research.
+            --url <page-url> [--out evidence.json] reads rendered content with Playwright for LLM review.
   analyze   [--days 7] [--input review.json] [--out path] [--db path]
             Exports jobs for LLM review, or stores a completed LLM review. No automatic scoring.
   full      [--query <text>] [--sources <list>] [--limit 50] [--days 7] [--out path] [--db path]
