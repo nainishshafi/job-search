@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { hasValidProjectAssessment, type StoredJob } from '../db/client.js';
 import { readCompanyResearch } from '../db/company-research.js';
+import { loadJobRubric, readJobClassification } from '../job-classification.js';
 
 export interface HtmlReportOptions {
   title?: string;
@@ -155,8 +156,10 @@ export function generateHtmlReport(
     timeStyle: 'medium',
   });
 
+  const rubric = loadJobRubric();
   const sortedJobs = sortJobsByDateDesc(jobs, now).map((job) => ({
     ...job,
+    classification: readJobClassification(job, rubric, now),
     postedAtMs: getJobPostedAtMs(job, now),
     companyResearch: readCompanyResearch(job.company_research_json, job.company),
     projectEstimate: hasValidProjectAssessment(job)
@@ -165,12 +168,19 @@ export function generateHtmlReport(
       : { label: 'Not analyzed', score: null, evidence: 'Awaiting LLM review', reasoning: '', model: '' },
   }));
   const safeJson = JSON.stringify(sortedJobs).replace(/</g, '\\u003c');
+  const classificationLabels = JSON.stringify(rubric.dimensions).replace(/</g, '\\u003c');
 
-  const html = template
-    .replaceAll('{{TITLE}}', () => escapeHtmlText(title))
-    .replaceAll('{{FILTER_SUMMARY}}', () => escapeHtmlText(filterSummary))
-    .replaceAll('{{GENERATED_AT}}', () => escapeHtmlText(generatedAt))
-    .replace('{{JOBS_JSON}}', () => safeJson);
+  const replacements: Record<string, string> = {
+    TITLE: escapeHtmlText(title),
+    FILTER_SUMMARY: escapeHtmlText(filterSummary),
+    GENERATED_AT: escapeHtmlText(generatedAt),
+    JOBS_JSON: safeJson,
+    CLASSIFICATION_LABELS_JSON: classificationLabels,
+  };
+  const html = template.replace(
+    /\{\{(TITLE|FILTER_SUMMARY|GENERATED_AT|JOBS_JSON|CLASSIFICATION_LABELS_JSON)\}\}/g,
+    (_, key: string) => replacements[key],
+  );
 
   const outPath = path.resolve(
     options.outPath ??

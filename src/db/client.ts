@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { readCompanyResearch } from './company-research.js';
+import { loadJobRubric, matchesClassification, validateClassificationFilter, type ClassificationFilter } from '../job-classification.js';
 import type {
   JobListing,
   JobSourceName,
@@ -41,6 +42,7 @@ export interface StoredJob {
   project_analysis_model?: string | null;
   project_reasoning?: string | null;
   company_research_json?: string | null;
+  classification_json?: string | null;
 }
 
 export function hasValidProjectAssessment(job: StoredJob): boolean {
@@ -64,11 +66,12 @@ export interface UpsertSummary {
   updated: number;
 }
 
-export interface ListJobsFilter {
+export interface ListJobsFilter extends ClassificationFilter {
   status?: JobStatus;
   source?: JobSourceName;
   search?: string;
   limit?: number;
+  predicate?: (job: StoredJob) => boolean;
 }
 
 export function openDatabase(dbPath: string): Database.Database {
@@ -97,6 +100,7 @@ export function openDatabase(dbPath: string): Database.Database {
       project_analysis_model: 'TEXT',
       project_reasoning: 'TEXT',
       company_research_json: 'TEXT',
+      classification_json: 'TEXT',
     })) {
       if (!columns.has(name)) db.exec(`ALTER TABLE jobs ADD COLUMN ${name} ${definition}`);
     }
@@ -252,6 +256,21 @@ export function listJobs(
   const limit = Math.min(Math.max(filter.limit ?? 50, 1), 500);
   params.limit = limit;
 
+  const hasClassificationFilter = [filter.domain, filter.role, filter.technology].some(value => value !== undefined);
+  if (hasClassificationFilter || filter.predicate) {
+    const rubric = hasClassificationFilter ? loadJobRubric() : undefined;
+    if (rubric) validateClassificationFilter(filter, rubric);
+    delete params.limit;
+    const matches: StoredJob[] = [];
+    for (const job of db.prepare(`SELECT * FROM jobs ${where} ORDER BY last_seen_at DESC, id DESC`)
+      .iterate(params) as Iterable<StoredJob>) {
+      if ((!rubric || matchesClassification(job, filter, rubric)) && (!filter.predicate || filter.predicate(job))) {
+        matches.push(job);
+        if (matches.length === limit) break;
+      }
+    }
+    return matches;
+  }
   return db
     .prepare(
       `SELECT * FROM jobs ${where} ORDER BY last_seen_at DESC, id DESC LIMIT @limit`,

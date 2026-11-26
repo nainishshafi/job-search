@@ -85,7 +85,7 @@ function sampleLimit(value: unknown): number {
   }
   return value;
 }
-function rubricHash(rubric: ClassifierRubric): string {
+export function rubricHash(rubric: ClassifierRubric): string {
   const value = object(rubric);
   if (!Number.isSafeInteger(value.version) || (value.version as number) <= 0) throw new Error('Invalid rubric version');
   const definitions = object(value.dimensions);
@@ -128,7 +128,7 @@ function selectJobs(jobs: StoredJob[], limit: number, snapshotAt: string): Store
   for (let i = quota; selected.length < target; i++) selected.push(unclear[(seed + i) % unclear.length]);
   return selected;
 }
-function validateDimension(input: unknown, labels: Record<string, string>, job: StoredJob, multi: boolean) {
+export function validateDimension(input: unknown, labels: Record<string, string>, job: StoredJob, multi: boolean) {
   const value = object(input);
   const chosen = multi ? value.labels : [value.label];
   if (!Array.isArray(chosen) || !chosen.length || [...chosen].some((label) =>

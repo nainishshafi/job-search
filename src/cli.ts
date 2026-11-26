@@ -12,6 +12,8 @@ function printHelp(): void {
 Registered sources: ${sources}
 
 Commands:
+  classify  [--limit 40] [--input decisions.json] [--out path] [--db path]
+            Exports pending jobs across all ages/statuses, or persists source-backed harness decisions.
   classifier [--limit 40] [--input review.json] [--out path] [--db path]
             Inventories all stored jobs and exports exemplars for harness review, or validates completed decisions.
   research  [--days 7] [--company <exact-name>] [--input review.json] [--out path] [--db path]
@@ -26,7 +28,10 @@ Commands:
   report    [--status new|saved|applied|...] [--source <id>] [--search text] [--days 7] [--limit 500] [--out path] [--db path]
   update    --id <jobId> --status <status> [--notes "text"] [--db path]
   stats     [--db path]
-  discover  [--tokens gh:foo,lv:bar] [--url <page-url>] [--boards path]`);
+  discover  [--tokens gh:foo,lv:bar] [--url <page-url>] [--boards path]
+
+list/report filters: --domain <rubric-label> --role <rubric-label> --technology <rubric-label>
+  Filters combine with AND and include pending/Unclear by default. --strict requires explicit matches.`);
 }
 
 async function main(): Promise<void> {

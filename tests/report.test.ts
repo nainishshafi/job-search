@@ -7,6 +7,12 @@ import { describe, it } from 'node:test';
 import { chromium } from 'playwright';
 import type { StoredJob } from '../src/db/client.js';
 import type { CompanyResearch } from '../src/db/company-research.js';
+import { rubricHash } from '../src/classifier.js';
+import { projectInputHash } from '../src/db/project-analysis.js';
+import {
+  loadJobRubric, matchesClassification, readJobClassification,
+  type ClassificationFilter, type SavedJobClassification,
+} from '../src/job-classification.js';
 import {
   formatTimestampFilename,
   generateHtmlReport,
@@ -312,6 +318,152 @@ describe('HTML report generator', () => {
         assert.ok(widths.document <= widths.viewport, `Page overflows at ${width}px`);
         assert.ok(widths.table <= widths.wrapper + 1, `Table overflows at ${width}px`);
       }
+    } finally {
+      await browser.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('serializes validated classifications and matches shared AND and strict filter semantics', async (t) => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'job-classification-report-'));
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const rubric = loadJobRubric();
+      const attack = '</script><script>window.injected = true</script><img src=x onerror="window.injected=true"> $$ $& {{CLASSIFICATION_LABELS_JSON}}';
+      const base: StoredJob = {
+        id: 1, source: 'jobstreet', external_id: '1', url: 'https://example.com/job',
+        title: 'Backend Java Python developer', company: 'Acme', location: 'Singapore',
+        salary_min: 6000, salary_max: 8000, salary_currency: 'SGD', salary_interval: 'monthly',
+        employment_type: null, description_snippet: `Banking APIs ${attack}`, skills_json: '[]',
+        posted_at: '2026-11-25', first_seen_at: '2026-11-26 08:00:00',
+        last_seen_at: '2026-11-26 08:00:00', status: 'new', notes: null,
+      };
+      function classified(id: number, domain: string, role: string, technologies: string[]): StoredJob {
+        const job = { ...base, id, external_id: String(id) };
+        const input_hash = projectInputHash(job);
+        const dimension = (label: string) => ({
+          label, score: label === 'Unclear' ? null : 90, evidence: attack, reasoning: attack,
+        });
+        const saved: SavedJobClassification = {
+          schemaVersion: 1, rubricVersion: rubric.version, rubricHash: rubricHash(rubric),
+          input_hash, classifiedAt: '2026-11-25T08:00:00.000Z', model: attack,
+          decision: {
+            id, input_hash, domain: dimension(domain), role: dimension(role),
+            technology: {
+              labels: technologies, score: technologies.includes('Unclear') ? null : 90,
+              evidence: attack, reasoning: attack,
+            },
+          },
+        };
+        return { ...job, classification_json: JSON.stringify(saved) };
+      }
+      const jobs = [
+        classified(1, 'Banking', 'Backend development', ['Java', 'Python']),
+        classified(2, 'Healthcare', 'Frontend development', ['C#/.NET']),
+        classified(3, 'Banking', 'Unclear', ['Java']),
+        classified(4, 'Banking', 'Backend development', ['Unclear']),
+        classified(5, 'Unclear', 'Unclear', ['Unclear']),
+        { ...base, id: 6 },
+        { ...base, id: 7, classification_json: '{invalid' },
+        { ...classified(8, 'Banking', 'Backend development', ['Java']), title: 'Changed source' },
+        {
+          ...classified(9, 'Banking', 'Backend development', ['Java']),
+          classification_json: classified(9, 'Banking', 'Backend development', ['Java'])
+            .classification_json!.replace(rubricHash(rubric), 'outdated-rubric'),
+        },
+      ];
+      for (const job of jobs.slice(0, 5)) assert.ok(readJobClassification(job, rubric));
+      for (const job of jobs.slice(5)) assert.equal(readJobClassification(job, rubric), null);
+      const readFile = t.mock.method(fs, 'readFileSync');
+      const outPath = generateHtmlReport(jobs, { outPath: path.join(tmpDir, 'report.html') });
+      assert.equal(readFile.mock.calls.filter(call =>
+        String(call.arguments[0]) === path.resolve('config/job-classifier.json')).length, 1);
+      readFile.mock.restore();
+      const html = fs.readFileSync(outPath, 'utf8');
+      assert.ok(!html.includes(attack));
+      assert.ok(!html.includes('type="application/json">{{CLASSIFICATION_LABELS_JSON}}</script>'));
+      const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      const errors: string[] = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.goto(pathToFileURL(outPath).href);
+      const serialized = await page.locator('#jobs-data').textContent();
+      const data = JSON.parse(serialized!) as Array<{ id: number; classification: SavedJobClassification | null }>;
+      for (const job of jobs) {
+        assert.deepEqual(data.find(row => row.id === job.id)!.classification, readJobClassification(job, rubric));
+      }
+      for (const dimension of ['domain', 'role', 'technology'] as const) {
+        assert.deepEqual(
+          await page.locator(`#${dimension}Filter option`).evaluateAll(options =>
+            options.map(option => (option as HTMLOptionElement).value)),
+          ['', ...Object.keys(rubric.dimensions[dimension])],
+        );
+      }
+      const ids = async () => (await page.locator('#jobsBody tr td:first-child').allTextContents())
+        .map(text => Number(text.slice(1)));
+      const cases: ClassificationFilter[] = [
+        {}, { strict: true }, { domain: 'Banking' }, { role: 'Backend development' },
+        { technology: 'Java' }, { technology: 'Python' }, { technology: 'C#/.NET' },
+        { domain: 'Banking', role: 'Backend development', technology: 'Java' },
+        { domain: 'Healthcare', role: 'Backend development', technology: 'Python' },
+        { domain: 'Unclear' }, { role: 'Unclear' }, { technology: 'Unclear' },
+        { domain: 'Banking', role: 'Unclear', technology: 'Java' },
+        { domain: 'Unclear', role: 'Unclear', technology: 'Unclear' },
+      ];
+      for (const filter of cases) {
+        for (const strict of [false, true]) {
+          await page.selectOption('#domainFilter', filter.domain ?? '');
+          await page.selectOption('#roleFilter', filter.role ?? '');
+          await page.selectOption('#technologyFilter', filter.technology ?? '');
+          await page.locator('#strictClassification').setChecked(strict);
+          const expected = jobs.filter(job => matchesClassification(job, { ...filter, strict }, rubric))
+            .map(job => job.id).sort((a, b) => b - a);
+          assert.deepEqual(await ids(), expected, JSON.stringify({ ...filter, strict }));
+          assert.equal(await page.locator('#emptyState').isVisible(), expected.length === 0);
+          assert.equal(await page.locator('.stat-value').first().innerText(), String(expected.length));
+        }
+      }
+      await page.selectOption('#domainFilter', 'Banking');
+      await page.selectOption('#roleFilter', 'Backend development');
+      await page.selectOption('#technologyFilter', 'Python');
+      await page.fill('#searchInput', 'Acme');
+      await page.selectOption('#salaryFilter', 'with-salary');
+      await page.selectOption('#sortOrder', 'posted-desc');
+      await page.getByRole('button', { name: 'jobstreet (9)', exact: true }).click();
+      assert.deepEqual(await ids(), [1]);
+      await page.fill('#searchInput', 'no such job');
+      assert.deepEqual(await ids(), []);
+      await page.fill('#searchInput', '');
+      for (const dimension of ['domain', 'role', 'technology']) {
+        await page.selectOption(`#${dimension}Filter`, '');
+      }
+      await page.selectOption('#salaryFilter', 'all');
+      const pending = page.locator('#jobsBody tr').filter({ hasText: 'Changed source' });
+      assert.equal(await pending.locator('td[data-label="Classification"]').innerText(), 'Classification pending');
+      assert.equal(await pending.locator('button[data-classification-id]').count(), 0);
+      const unclear = page.locator('#jobsBody tr').filter({ has: page.locator('button[data-classification-id="5"]') });
+      assert.match(await unclear.locator('td[data-label="Classification"]').innerText(), /Domain: Unclear\nRole: Unclear\nTechnology: Unclear/);
+      await page.getByRole('button', { name: 'View classification for job 1', exact: true }).click();
+      const dialog = page.getByRole('dialog');
+      assert.ok(await dialog.isVisible());
+      assert.match(await dialog.innerText(), /Java, Python/);
+      assert.match(await dialog.innerText(), /Evidence:/);
+      assert.match(await dialog.innerText(), /Reasoning:/);
+      assert.match(await dialog.innerText(), /Provenance/);
+      const saved = readJobClassification(jobs[0], rubric)!;
+      for (const value of [attack, saved.input_hash, saved.rubricHash, saved.classifiedAt]) {
+        assert.ok((await dialog.innerText()).includes(value));
+      }
+      assert.equal(await dialog.locator('script, img').count(), 0);
+      assert.equal(await page.evaluate(() => 'injected' in window), false);
+      assert.ok(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth));
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+      assert.equal(await dialog.isVisible(), false);
+      await page.getByRole('button', { name: 'View classification for job 5', exact: true }).click();
+      assert.ok(!(await dialog.innerText()).includes('Classification pending'));
+      assert.ok(!(await dialog.innerText()).includes('% confidence'));
+      await page.keyboard.press('Escape');
+      assert.equal(await dialog.isVisible(), false);
+      assert.deepEqual(errors, []);
     } finally {
       await browser.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });

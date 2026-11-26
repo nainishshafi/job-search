@@ -246,13 +246,14 @@
     summary { color: var(--accent); cursor: pointer; font-size: 0.8rem; }
     th:nth-child(1) { width: 5%; }
     th:nth-child(2) { width: 10%; }
-    th:nth-child(3) { width: 21%; }
-    th:nth-child(4) { width: 17%; }
-    th:nth-child(5) { width: 13%; }
-    th:nth-child(6) { width: 11%; }
+    th:nth-child(3) { width: 17%; }
+    th:nth-child(4) { width: 14%; }
+    th:nth-child(5) { width: 14%; }
+    th:nth-child(6) { width: 10%; }
     th:nth-child(7) { width: 10%; }
     th:nth-child(8) { width: 8%; }
-    th:nth-child(9) { width: 5%; }
+    th:nth-child(9) { width: 7%; }
+    th:nth-child(10) { width: 5%; }
     @media (max-width: 1000px) {
       .container { padding: 16px 12px 32px; }
       .stats { grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); }
@@ -303,7 +304,12 @@
         <option value="id-desc">ID: highest first</option>
         <option value="posted-desc">Posted: newest first</option>
       </select>
+      <select id="domainFilter" aria-label="Classification domain"><option value="">All Domains</option></select>
+      <select id="roleFilter" aria-label="Classification role"><option value="">All Roles</option></select>
+      <select id="technologyFilter" aria-label="Classification technology"><option value="">All Technologies</option></select>
+      <label><input type="checkbox" id="strictClassification" /> Strict classification matches</label>
     </section>
+    <p class="meta">Classification filters combine with AND. By default, pending classifications and Unclear dimensions are included. Strict matches require each selected label explicitly.</p>
 
     <div class="table-wrap">
       <table>
@@ -313,6 +319,7 @@
             <th>Source</th>
             <th>Role &amp; Details</th>
             <th>Project Likelihood</th>
+            <th>Classification</th>
             <th>Company</th>
             <th>Company Research</th>
             <th>Salary</th>
@@ -335,8 +342,13 @@
   </dialog>
 
   <script id="jobs-data" type="application/json">{{JOBS_JSON}}</script>
+  <script id="classification-labels" type="application/json">{{CLASSIFICATION_LABELS_JSON}}</script>
   <script>
     const jobs = JSON.parse(document.getElementById('jobs-data').textContent);
+    const classificationLabels = JSON.parse(document.getElementById('classification-labels').textContent);
+    const classificationDimensions = ['domain', 'role', 'technology'];
+    const classificationFilters = classificationDimensions.map(dimension => document.getElementById(`${dimension}Filter`));
+    const strictClassification = document.getElementById('strictClassification');
     const statsEl = document.getElementById('stats');
     const pillsEl = document.getElementById('sourcePills');
     const bodyEl = document.getElementById('jobsBody');
@@ -455,6 +467,43 @@
         </details>`;
     }
 
+    function matchesClassification(job) {
+      return classificationDimensions.every((dimension, index) => {
+        const target = classificationFilters[index].value;
+        if (!target) return true;
+        if (!job.classification) return !strictClassification.checked;
+        const value = job.classification.decision[dimension];
+        const labels = dimension === 'technology' ? value.labels : [value.label];
+        return labels.includes(target) || (!strictClassification.checked && labels.includes('Unclear'));
+      });
+    }
+
+    function renderClassification(job) {
+      if (!job.classification) return '<span class="na">Classification pending</span>';
+      const decision = job.classification.decision;
+      return `<div>Domain: ${escapeHtml(decision.domain.label)}</div>
+        <div>Role: ${escapeHtml(decision.role.label)}</div>
+        <div>Technology: ${escapeHtml(decision.technology.labels.join(', '))}</div>
+        <button type="button" class="research-button" data-classification-id="${job.id}" aria-haspopup="dialog"
+          aria-label="View classification for job ${job.id}">View details</button>`;
+    }
+
+    function renderClassificationDetails(classification) {
+      const dimensions = classificationDimensions.map(dimension => {
+        const value = classification.decision[dimension];
+        const label = dimension === 'technology' ? value.labels.join(', ') : value.label;
+        return `<h3>${escapeHtml(dimension)}</h3>
+          <p>${escapeHtml(label)}${value.score === null ? '' : ` (${escapeHtml(value.score)}% confidence)`}</p>
+          <p><strong>Evidence:</strong> ${escapeHtml(value.evidence)}</p>
+          <p><strong>Reasoning:</strong> ${escapeHtml(value.reasoning)}</p>`;
+      }).join('');
+      return `${dimensions}<h3>Provenance</h3>
+        <p class="meta">Schema: ${escapeHtml(classification.schemaVersion)} · Rubric: ${escapeHtml(classification.rubricVersion)}</p>
+        <p class="meta">Rubric hash: ${escapeHtml(classification.rubricHash)}</p>
+        <p class="meta">Input hash: ${escapeHtml(classification.input_hash)}</p>
+        <p class="meta">Classified: ${escapeHtml(classification.classifiedAt)} · LLM: ${escapeHtml(classification.model)}</p>`;
+    }
+
     const sources = Array.from(new Set(jobs.map(j => j.source)));
 
     function renderStats(filtered) {
@@ -492,6 +541,7 @@
       const filtered = jobs.filter(j => {
         if (activeSource !== 'all' && j.source !== activeSource) return false;
         if (sal === 'with-salary' && j.salary_min === null && j.salary_max === null) return false;
+        if (!matchesClassification(j)) return false;
         if (q) {
           const hay = `${j.title} ${j.company} ${j.location || ''} ${j.description_snippet || ''} ${j.projectEstimate.label} ${j.companyResearch ? JSON.stringify(j.companyResearch) : ''}`.toLowerCase();
           if (!hay.includes(q)) return false;
@@ -529,6 +579,7 @@
               <div class="meta">${model ? `LLM: ${escapeHtml(model)}` : ''}</div>
               </details>
             </td>
+            <td data-label="Classification">${renderClassification(j)}</td>
             <td data-label="Company">${escapeHtml(j.company)}</td>
             <td data-label="Company Research">${renderCompanyPreview(j)}</td>
             <td data-label="Salary">${formatSalary(j)}</td>
@@ -542,13 +593,31 @@
     searchInput.addEventListener('input', render);
     salaryFilter.addEventListener('change', render);
     sortOrder.addEventListener('change', render);
+    classificationFilters.forEach((select, index) => {
+      for (const label of Object.keys(classificationLabels[classificationDimensions[index]])) {
+        const option = document.createElement('option');
+        option.value = label;
+        option.textContent = label;
+        select.appendChild(option);
+      }
+      select.addEventListener('change', render);
+    });
+    strictClassification.addEventListener('change', render);
     bodyEl.addEventListener('click', (event) => {
-      const button = event.target.closest('button[data-research-id]');
+      const button = event.target.closest('button[data-research-id], button[data-classification-id]');
       if (!button) return;
-      const job = jobs.find(j => String(j.id) === button.dataset.researchId);
-      if (!job?.companyResearch) return;
-      researchDialogTitle.textContent = job.company;
-      researchDialogContent.innerHTML = renderCompanyResearch(job.companyResearch);
+      const classificationId = button.dataset.classificationId;
+      const job = jobs.find(j => String(j.id) === (classificationId ?? button.dataset.researchId));
+      if (!job) return;
+      if (classificationId) {
+        if (!job.classification) return;
+        researchDialogTitle.textContent = `Classification: ${job.title}`;
+        researchDialogContent.innerHTML = renderClassificationDetails(job.classification);
+      } else {
+        if (!job.companyResearch) return;
+        researchDialogTitle.textContent = job.company;
+        researchDialogContent.innerHTML = renderCompanyResearch(job.companyResearch);
+      }
       researchDialog.showModal();
       researchDialog.scrollTop = 0;
     });

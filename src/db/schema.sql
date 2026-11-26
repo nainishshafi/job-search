@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     status              TEXT NOT NULL DEFAULT 'new',
     notes               TEXT,
     company_research_json TEXT,
+    classification_json TEXT,
     UNIQUE(source, external_id)
 );
 
@@ -37,3 +38,6 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_last_seen ON jobs(last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company);
+CREATE INDEX IF NOT EXISTS idx_jobs_last_seen_id ON jobs(last_seen_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_status_order ON jobs(status, last_seen_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_source_order ON jobs(source, last_seen_at DESC, id DESC);

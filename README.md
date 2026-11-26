@@ -30,7 +30,7 @@ LLM judgments and web searches are performed by the agent.
 
 The final report combines recent jobs across all application statuses with
 preserved and newly reviewed findings, without a row limit. It provides search,
-source and salary filters, descending ID or posting-date sorting, expandable
+source, salary, domain, role and technology filters, descending ID or posting-date sorting, expandable
 listing evidence, and company research details. The layout adapts to smaller
 screens, while repeat searches preserve application statuses and notes.
 
@@ -150,6 +150,8 @@ The required stage order is:
 
 **Scrape → project review → project import → company research → company import → verification → final report delivery**
 
+After project import, the agent also completes source-backed per-job `classify` batches before company research produces the final report.
+
 The agent continues through every stage without separate confirmation. Project
 review covers every pending listing; company research covers every pending
 employer independently. Valid results are preserved. When company pages are
@@ -185,7 +187,7 @@ Apply the same database and window to company research; pass the final HTML
 output path to the company import.
 
 The preliminary report filters `new` jobs, uses posted dates and reads at most
-500 records before date filtering. The final import report covers all recent
+500 matching records after date and classification filtering. The final import report covers all recent
 jobs across all statuses without a row limit, using posted dates with a
 last-seen fallback when unavailable. These reports can therefore have different
 job counts. Reports are saved as timestamped HTML files in `data/reports/`
@@ -430,6 +432,22 @@ The export inventories every stored job across all statuses and ages, then selec
 
 Every export also saves the authoritative `data/classifier/pending-snapshot.json`. Import validates its metadata and sample membership, source hashes, corpus size, rubric version/hash, labels, scores and evidence. It rejects snapshots seven days old and commits `data/classifier/latest-review.json` only after writing an immutable source audit, Markdown review report and any requested output. It preserves database project assessments, application statuses and company research. These are acting-model examples, not independently verified accuracy measurements.
 
-New project-domain assessments in the full harness workflow use the canonical rubric through the existing `analyze` import. Role and technology examples are stored separately in classifier artifacts; they are not currently displayed in the main HTML job report. Existing valid domain labels are preserved.
+New project-domain assessments use the canonical rubric through `analyze`. Separate per-job `classify` imports save domain, role and technology in `jobs.classification_json`, with source/rubric hashes, quotes, reasoning, model and timestamp. Existing valid project assessments and company research remain preserved.
+
+```powershell
+# Export up to 100 pending classifications across every age and application status
+node --import tsx src/cli.ts classify --limit 100
+# The harness reviews each source and saves the complete batch separately.
+node --import tsx src/cli.ts classify --input data/classifier/job-decisions.json
+
+# Find backend Java jobs in banking; retain pending/Unclear dimensions by default
+node --import tsx src/cli.ts list --domain "Banking" --role "Backend development" --technology "Java"
+# Require explicit matching classifications
+node --import tsx src/cli.ts report --technology "C#/.NET" --strict
+```
+
+The `classify` export defaults to 40 jobs and saves a manifest per database. Its decisions copy all batch metadata, replace `jobs` with `decisions`, and add the actual model, using the same dimension structure as exemplar reviews. Imports validate the exact batch, current selected sources and rubric before atomic writes; unrelated new jobs do not invalidate it. Valid classifications cannot be replaced by conflicting imports. Identical replay preserves timestamps. Repeat batches until empty for a full backfill.
+
+Filters combine with AND and apply before the result limit. Each dimension retains matches plus pending or `Unclear` by default; `--strict` requires explicit matches. The report distinguishes pending classifications from completed `Unclear`, and displays evidence and provenance separately from legacy project assessments. Source or rubric changes invalidate classifications for filtering without discarding existing project or company findings.
 
 Full harness workflows check `reviewDue` after company research. Review is due seven days after the reviewed source snapshot, or earlier if the rubric, corpus size or saved exemplar sources change. Reimporting historical decisions cannot reset this clock. A due review exports a deterministic exemplar sample and requires fresh agent judgments. Samples can overlap or repeat between reviews. This is checked when a full workflow runs; it does not create a background scheduled task.

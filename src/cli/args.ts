@@ -33,6 +33,10 @@ export interface CliValues {
   out?: string;
   input?: string;
   company?: string;
+  domain?: string;
+  role?: string;
+  technology?: string;
+  strict?: boolean;
 }
 
 export function parseCliArgs(argv: string[]): {
@@ -64,6 +68,10 @@ export function parseCliArgs(argv: string[]): {
       out: { type: 'string' },
       input: { type: 'string' },
       company: { type: 'string' },
+      domain: { type: 'string' },
+      role: { type: 'string' },
+      technology: { type: 'string' },
+      strict: { type: 'boolean', default: false },
     },
     allowPositionals: true,
   });
