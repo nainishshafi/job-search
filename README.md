@@ -1,6 +1,38 @@
-# Singapore IT Job Search & SQLite Tracker
+# Singapore IT Job Search, LLM Analysis & SQLite Tracker
 
-A modular TypeScript CLI for searching IT jobs in Singapore using an **API-first** approach with **Playwright** browser fallback and local **SQLite** tracking (`data/jobs.db`).
+A modular TypeScript CLI and agent workflow for finding Singapore IT jobs,
+tracking applications, analyzing likely project domains with an **LLM**, and
+researching employers. It searches **Java, C#, .NET and Python** roles across
+JobStreet, MyCareersFuture, Greenhouse and Lever, using public APIs where
+available and **Playwright** for browser-based sources and fallback retrieval.
+Listings and reviewed findings are stored locally in **SQLite** (`data/jobs.db`).
+
+The LLM reviews each pending listing's title, employer and available description
+to identify a supported project domain. Each assessment includes a confidence
+score, an exact supporting quote, reasoning, the reviewer model and an analysis
+timestamp. Listings without enough evidence receive `Unclear` with a null score.
+Confidence describes the inferred domain; it does not measure hiring chances or
+confirm an unnamed client. Valid assessments are preserved across searches and
+reviewed again only when missing or invalidated.
+
+Company research runs independently of project analysis. The agent searches
+public sources for employer information, Glassdoor review results, and founders
+of small or unknown-size companies, recording identity checks, citations and
+uncertainty. Glassdoor research uses search results without opening its pages.
+Employer information provides context without establishing a particular job's
+client or project.
+
+Ask the workspace agent to **`Use Skill: job-search-tracker run full`** to complete
+the workflow: scrape listings, review pending projects, import validated
+assessments, research pending companies, and generate the final **HTML report**.
+The CLI `full` command alone performs scraping and produces a preliminary report;
+LLM judgments and web searches are performed by the agent.
+
+The final report combines recent jobs across all application statuses with
+preserved and newly reviewed findings, without a row limit. It provides search,
+source and salary filters, descending ID or posting-date sorting, expandable
+listing evidence, and company research details. The layout adapts to smaller
+screens, while repeat searches preserve application statuses and notes.
 
 ---
 
@@ -144,7 +176,7 @@ research, import an empty company review with its exported metadata to generate
 the final combined report. Empty reviews are accepted only when their pending
 scope is empty.
 
-`full` defaults to 50 results per source and keyword and a seven-day window.
+`full` defaults to 30 results per source and keyword and a seven-day window.
 It accepts `--query`, `--sources`, `--limit`, `--days`, `--db` and `--out`.
 Carry any custom `--days` and `--db` into the export, and the custom `--db`
 and final HTML `--out` into the import. The import uses the review's
@@ -164,9 +196,14 @@ database listings. Check the per-source results even when `full` exits
 successfully: blocked sources can appear alongside successful searches.
 HTTP 429 indicates rate limiting and incomplete coverage for that search.
 
-### Assessment Rules
+### LLM Project Analysis
 
 Project analysis uses LLM decisions, with no keyword classifier or automatic confidence scoring.
+The agent reads each pending listing's stored title, employer and description
+individually, identifies a supported project domain, and explains its judgment
+with an exact quote. Company web research supplies employer context separately;
+it does not establish the client or project domain of a particular job.
+
 The exported input contains `snapshotAt`, `days`, and each job's `id`, `input_hash`,
 `title`, `company`, and `description`. The completed review must contain `model`,
 the same `snapshotAt` and `days`, and a `decisions` array covering every exported pending job.
@@ -192,6 +229,56 @@ Do not infer private banking from banking technology or wealth management alone,
 or a government-agency project from a government-linked employer. Keep core
 banking, private banking, wealth management, public healthcare and education
 distinct where the evidence supports them.
+
+#### Review JSON Example
+
+Save the LLM's decisions in this format before running `analyze --input`.
+This example assumes an exported listing with the title `Software Developer`
+and no text establishing its project domain. Replace the example ID, hash,
+timestamp, window and model with the actual exported values and reviewer model;
+include every pending ID exactly once.
+
+```json
+{
+  "model": "ACTUAL_REVIEWER_MODEL",
+  "snapshotAt": "COPY_EXPORTED_TIMESTAMP",
+  "days": 7,
+  "decisions": [
+    {
+      "id": 123,
+      "input_hash": "COPY_EXPORTED_JOB_HASH",
+      "label": "Unclear",
+      "score": null,
+      "evidence": "Software Developer",
+      "reasoning": "The stored listing describes a generic developer role without identifying a client, industry or project domain."
+    }
+  ]
+}
+```
+
+For an established domain, use a specific label and an integer score from
+0 through 100. Evidence must be an exact contiguous substring of the stored
+title, company or description. Do not substitute keyword rules, fixed scores
+or company lookup tables for the LLM's individual judgments. The review contract
+and importer are defined in [`src/db/project-analysis.ts`](src/db/project-analysis.ts).
+
+#### Stored Analysis Fields
+
+| SQLite field | Stored value |
+| --- | --- |
+| `project_type` | Domain label, or `Unclear` |
+| `project_probability` | Subjective domain confidence, 0–100; null for `Unclear` |
+| `project_evidence` | Exact supporting quote from the listing |
+| `project_reasoning` | Explanation of the judgment and uncertainty |
+| `project_analysis_method` | `llm` |
+| `project_analysis_model` | Actual reviewer model |
+| `project_analyzed_at` | Import timestamp in ISO format |
+
+These columns are added automatically when an existing database opens.
+The importer validates the review before any writes, then reads the persisted
+rows back for report generation. Validation checks coverage and evidence
+matching; it does not prove that the inferred domain is correct or that the
+confidence is calibrated. Keep the export and completed review for audit.
 
 ### Company Research
 
@@ -219,10 +306,14 @@ Imports validate complete coverage, unchanged hashes, metadata, review metrics,
 founder evidence and source URLs in one transaction. This validates the data
 contract, not the truth of external claims or whether searches were executed.
 
-Glassdoor findings distinguish `found`, `not_found` and `unavailable`.
-Blocked pages and conflicting snippets remain unavailable, with unverifiable
-ratings and review counts left null. Summarize employee opinions as attributed
-reviews. Founder names require supporting sources; job titles such as CEO or
+The stored contract supports Glassdoor findings of `found`, `not_found` and
+`unavailable`. The agent workflow uses ordinary web-search results only:
+do not open or fetch Glassdoor pages, including through `research --url` or
+interactive browsing. Cite matching review URLs without visiting them and mark
+unverified matching results `unavailable`, with rating and review count null.
+Use `not_found` when the searches locate no matching employee-review page.
+Clearly label any quoted employee opinions as search snippets.
+Founder names require supporting sources; job titles such as CEO or
 director do not establish founder status. Small companies mean a source-supported
 workforce of up to 200 employees; leave unsupported size estimates `unknown`
 and search for founders for both small and unknown-size employers.
@@ -234,6 +325,20 @@ New listings reuse valid research from an exact-name employer. A company-name
 change replaces research with that employer's cached record or clears it.
 Title and description changes do not invalidate company research. There is no
 automatic expiration. Reports show missing or malformed research as `Not researched`.
+
+### Reading the Analysis Report
+
+The final report combines newly imported and preserved project assessments
+with company research for all recent jobs across all application statuses,
+without a row limit. A completed `Unclear` assessment is distinct from
+`Not analyzed`, which means a valid LLM review is still pending.
+
+- **Project Likelihood** shows the domain and confidence; expand **Evidence & reasoning** for the quote, explanation and reviewer model.
+- **Company Research** shows a compact preview; **View details** opens company information, identity checks, Glassdoor findings, founders and cited sources.
+- **Sort jobs** defaults to **ID: highest first**. Select **Posted: newest first** to order by posting date.
+- Relative posting times are resolved against the listing's recorded scrape time and displayed in Singapore time; date-only postings retain their date.
+- Search, source and salary filters retain the selected order. Search also matches company research and project labels.
+- Long text wraps within the report. On screens up to 1000px wide, table rows become stacked labeled fields; descriptions and research details remain expandable.
 
 ---
 
@@ -273,7 +378,7 @@ automatic expiration. Reports show missing or malformed research as `Not researc
 │       │   └── mycareersfuture.ts      # MyCareersFuture API + Playwright fallback
 │       └── playwright/
 │           ├── browser.ts              # Shared Playwright launcher & anti-bot detector
-│           ├── company-pages.ts        # Rendered company/Glassdoor page evidence
+│           ├── company-pages.ts        # Rendered non-Glassdoor company page evidence
 │           └── jobstreet.ts            # JobStreet SG Playwright adapter
 └── tests/
     ├── cli-args.test.ts                # CLI argument and workflow tests
@@ -281,7 +386,7 @@ automatic expiration. Reports show missing or malformed research as `Not researc
     ├── company-research.test.ts        # Migration, research validation, reuse and report safety
     ├── db.test.ts                      # In-memory SQLite, runner, and registry tests
     ├── normalizer.test.ts              # Payload normalizer, salary parser, and discovery tests
-    └── report.test.ts                  # HTML rendering and date filtering tests
+    └── report.test.ts                  # HTML safety, date sorting, filters and responsive browser checks
 ```
 
 ---

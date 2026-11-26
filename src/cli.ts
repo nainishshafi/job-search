@@ -17,7 +17,7 @@ Commands:
             --url <page-url> [--out evidence.json] reads rendered content with Playwright for LLM review.
   analyze   [--days 7] [--input review.json] [--out path] [--db path]
             Exports jobs for LLM review, or stores a completed LLM review. No automatic scoring.
-  full      [--query <text>] [--sources <list>] [--limit 50] [--days 7] [--out path] [--db path]
+  full      [--query <text>] [--sources <list>] [--limit 30] [--days 7] [--out path] [--db path]
             Searches ${DEFAULT_FULL_QUERIES.join(', ')} by default and writes one combined report.
   search    --query <text> [--sources <list>] [--limit 20] [--db path]
   list      [--status new|saved|applied|...] [--source <id>] [--search text] [--limit 25] [--json] [--db path]

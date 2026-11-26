@@ -30,6 +30,7 @@
       line-height: 1.5;
     }
     .container {
+      width: 100%;
       max-width: 1280px;
       margin: 0 auto;
       padding: 24px 20px 48px;
@@ -84,6 +85,8 @@
       margin-bottom: 16px;
     }
     input[type="search"], select {
+      min-width: 0;
+      max-width: 100%;
       background: var(--surface);
       color: var(--text);
       border: 1px solid var(--border);
@@ -128,12 +131,14 @@
     }
     table {
       width: 100%;
+      table-layout: fixed;
       border-collapse: collapse;
       font-size: 0.9rem;
     }
     th, td {
+      overflow-wrap: anywhere;
       text-align: left;
-      padding: 11px 14px;
+      padding: 11px 10px;
       border-bottom: 1px solid var(--border);
       vertical-align: top;
     }
@@ -172,16 +177,16 @@
       border-radius: 999px;
       font-size: 0.75rem;
       font-weight: 600;
-      white-space: nowrap;
+      white-space: normal;
     }
     .badge-jobstreet { background: var(--amber-soft); color: var(--amber); }
     .badge-mycareersfuture { background: var(--green-soft); color: var(--green); }
     .badge-greenhouse { background: var(--purple-soft); color: var(--purple); }
     .badge-lever { background: var(--accent-soft); color: var(--accent); }
-    .salary { color: var(--green); font-weight: 600; white-space: nowrap; }
+    .salary { color: var(--green); font-weight: 600; }
     .na { color: var(--muted); }
     .company-preview {
-      width: 210px;
+      width: 100%;
       margin: 0 0 8px;
       display: -webkit-box;
       -webkit-line-clamp: 2;
@@ -235,6 +240,41 @@
       padding: 36px;
       color: var(--muted);
     }
+    details { margin-top: 6px; }
+    summary { color: var(--accent); cursor: pointer; font-size: 0.8rem; }
+    th:nth-child(1) { width: 5%; }
+    th:nth-child(2) { width: 10%; }
+    th:nth-child(3) { width: 21%; }
+    th:nth-child(4) { width: 17%; }
+    th:nth-child(5) { width: 13%; }
+    th:nth-child(6) { width: 11%; }
+    th:nth-child(7) { width: 10%; }
+    th:nth-child(8) { width: 8%; }
+    th:nth-child(9) { width: 5%; }
+    @media (max-width: 1000px) {
+      .container { padding: 16px 12px 32px; }
+      .stats { grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); }
+      table, tbody { display: block; }
+      thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+      }
+      tbody tr { display: block; padding: 12px; border-bottom: 1px solid var(--border); }
+      tbody tr:last-child { border-bottom: none; }
+      td {
+        display: grid;
+        grid-template-columns: minmax(0, 110px) minmax(0, 1fr);
+        gap: 4px 12px;
+        padding: 6px 0;
+        border: none;
+      }
+      td::before { content: attr(data-label); color: var(--muted); font-size: 0.75rem; }
+      td > * { min-width: 0; grid-column: 2; }
+      td::before { grid-column: 1; grid-row: 1; }
+    }
   </style>
 </head>
 <body>
@@ -256,6 +296,10 @@
       <select id="salaryFilter">
         <option value="all">All Salaries</option>
         <option value="with-salary">With Salary Only</option>
+      </select>
+      <select id="sortOrder" aria-label="Sort jobs">
+        <option value="id-desc">ID: highest first</option>
+        <option value="posted-desc">Posted: newest first</option>
       </select>
     </section>
 
@@ -297,6 +341,7 @@
     const emptyEl = document.getElementById('emptyState');
     const searchInput = document.getElementById('searchInput');
     const salaryFilter = document.getElementById('salaryFilter');
+    const sortOrder = document.getElementById('sortOrder');
     const researchDialog = document.getElementById('researchDialog');
     const researchDialogTitle = document.getElementById('researchDialogTitle');
     const researchDialogContent = document.getElementById('researchDialogContent');
@@ -327,6 +372,15 @@
         : `${(j.salary_min ?? j.salary_max).toLocaleString()}`;
       const interval = j.salary_interval ? `/${escapeHtml(j.salary_interval)}` : '';
       return `<span class="salary">${escapeHtml(j.salary_currency)} ${range}${interval}</span>`;
+    }
+
+    function formatPosted(job) {
+      if (!job.posted_at) return '<span class="na">N/A</span>';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(job.posted_at.trim())) return escapeHtml(job.posted_at);
+      if (!job.postedAtMs) return escapeHtml(job.posted_at);
+      return escapeHtml(new Date(job.postedAtMs).toLocaleString('en-SG', {
+        timeZone: 'Asia/Singapore', dateStyle: 'medium', timeStyle: 'short',
+      }));
     }
 
     function renderCompanyPreview(job) {
@@ -402,6 +456,7 @@
         }
         return true;
       });
+      if (sortOrder.value === 'id-desc') filtered.sort((a, b) => b.id - a.id);
 
       renderStats(filtered);
       if (filtered.length === 0) {
@@ -413,28 +468,30 @@
 
       bodyEl.innerHTML = filtered.map(j => {
         const badgeClass = `badge-${escapeHtml(j.source)}`;
-        const snippet = j.description_snippet ? `<div class="snippet">${escapeHtml(j.description_snippet)}</div>` : '';
+        const snippet = j.description_snippet ? `<details><summary>Description</summary><div class="snippet">${escapeHtml(j.description_snippet)}</div></details>` : '';
         const { label, score, evidence, reasoning, model } = j.projectEstimate;
         const estimate = score === null ? label : `${score}% estimated: ${label}`;
         return `
           <tr>
-            <td>#${j.id}</td>
-            <td><span class="badge ${badgeClass}">${escapeHtml(j.source)}</span></td>
-            <td>
+            <td data-label="ID">#${j.id}</td>
+            <td data-label="Source"><span class="badge ${badgeClass}">${escapeHtml(j.source)}</span></td>
+            <td data-label="Role &amp; Details">
               <a class="job-link" href="${escapeHtml(safeHref(j.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(j.title)}</a>
               ${snippet}
             </td>
-            <td>
+            <td data-label="Project Likelihood">
               <strong>${escapeHtml(estimate)}</strong>
+              <details><summary>Evidence &amp; reasoning</summary>
               <div class="meta">${escapeHtml(evidence)}</div>
               <div class="meta">${escapeHtml(reasoning)}</div>
               <div class="meta">${model ? `LLM: ${escapeHtml(model)}` : ''}</div>
+              </details>
             </td>
-            <td>${escapeHtml(j.company)}</td>
-            <td>${renderCompanyPreview(j)}</td>
-            <td>${formatSalary(j)}</td>
-            <td>${escapeHtml(j.posted_at || 'N/A')}</td>
-            <td>${escapeHtml(j.status)}</td>
+            <td data-label="Company">${escapeHtml(j.company)}</td>
+            <td data-label="Company Research">${renderCompanyPreview(j)}</td>
+            <td data-label="Salary">${formatSalary(j)}</td>
+            <td data-label="Posted">${formatPosted(j)}<div class="meta">SGT</div></td>
+            <td data-label="Status">${escapeHtml(j.status)}</td>
           </tr>
         `;
       }).join('');
@@ -442,6 +499,7 @@
 
     searchInput.addEventListener('input', render);
     salaryFilter.addEventListener('change', render);
+    sortOrder.addEventListener('change', render);
     bodyEl.addEventListener('click', (event) => {
       const button = event.target.closest('button[data-research-id]');
       if (!button) return;

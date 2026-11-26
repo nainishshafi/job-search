@@ -123,7 +123,7 @@ export async function handleFull(
     const reports = await runSearch(db, {
       query,
       sources,
-      limit: limitParsed.value ?? 50,
+      limit: limitParsed.value ?? 30,
       fetchers,
     });
     console.table(reports);

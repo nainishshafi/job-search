@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, it } from 'node:test';
+import { chromium } from 'playwright';
 import type { StoredJob } from '../src/db/client.js';
 import {
   formatTimestampFilename,
@@ -191,6 +193,55 @@ describe('HTML report generator', () => {
       const pending = generateHtmlReport(jobs, { outPath });
       assert.ok(fs.readFileSync(pending, 'utf8').includes('"label":"Not analyzed","score":null'));
     } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps descending sorts after filtering and fits expanded details on narrow screens', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'job-report-layout-'));
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const base: StoredJob = {
+        id: 1, source: 'jobstreet', external_id: '1', url: 'https://example.com/job',
+        title: 'Developer', company: 'Acme', location: 'Singapore',
+        salary_min: 6000, salary_max: 8000, salary_currency: 'SGD', salary_interval: 'monthly',
+        employment_type: 'Full-time', description_snippet: 'Long description ' + 'x'.repeat(500),
+        skills_json: '[]', posted_at: '1h ago',
+        first_seen_at: '2026-11-25 08:00:00', last_seen_at: '2026-11-25 08:00:00',
+        status: 'new', notes: null,
+      };
+      const outPath = generateHtmlReport([
+        base,
+        { ...base, id: 3, external_id: '3', posted_at: '2026-11-24' },
+        { ...base, id: 2, external_id: '2', last_seen_at: '2026-11-26 08:00:00' },
+      ], { outPath: path.join(tmpDir, 'report.html'), now: new Date('2026-11-26T08:00:00Z') });
+      const page = await browser.newPage();
+      await page.goto(pathToFileURL(outPath).href);
+      const ids = () => page.locator('#jobsBody tr td:first-child').allTextContents();
+      assert.deepEqual(await ids(), ['#3', '#2', '#1']);
+      await page.selectOption('#sortOrder', 'posted-desc');
+      assert.deepEqual(await ids(), ['#2', '#1', '#3']);
+      assert.match(await page.locator('#jobsBody tr').first().locator('td[data-label="Posted"]').innerText(), /26 Nov 2026/);
+      await page.fill('#searchInput', 'Acme');
+      assert.deepEqual(await ids(), ['#2', '#1', '#3']);
+      await page.selectOption('#sortOrder', 'id-desc');
+      assert.deepEqual(await ids(), ['#3', '#2', '#1']);
+      for (const width of [1440, 1024, 768, 390, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.locator('#jobsBody details').first().evaluate((element) => {
+          (element as HTMLDetailsElement).open = true;
+        });
+        const widths = await page.evaluate(() => ({
+          viewport: window.innerWidth,
+          document: document.documentElement.scrollWidth,
+          table: document.querySelector('table')!.getBoundingClientRect().width,
+          wrapper: document.querySelector('.table-wrap')!.clientWidth,
+        }));
+        assert.ok(widths.document <= widths.viewport, `Page overflows at ${width}px`);
+        assert.ok(widths.table <= widths.wrapper + 1, `Table overflows at ${width}px`);
+      }
+    } finally {
+      await browser.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });

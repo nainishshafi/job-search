@@ -104,35 +104,23 @@ export function parsePostedAtMs(
   return parseSqliteOrIsoMs(trimmed);
 }
 
+export function getJobPostedAtMs(job: StoredJob, now: Date = new Date()): number {
+  const firstSeen = parseSqliteOrIsoMs(job.first_seen_at) ?? 0;
+  const lastSeen = parseSqliteOrIsoMs(job.last_seen_at) ?? 0;
+  const dateOnly = Boolean(job.posted_at && /^\d{4}-\d{2}-\d{2}$/.test(job.posted_at.trim()));
+  const anchorMs = dateOnly ? firstSeen || lastSeen : lastSeen || firstSeen;
+  return parsePostedAtMs(job.posted_at, anchorMs > 0 ? new Date(anchorMs) : now) ?? lastSeen;
+}
+
 export function sortJobsByDateDesc(
   jobs: StoredJob[],
   now: Date = new Date(),
 ): StoredJob[] {
   return [...jobs].sort((a, b) => {
-    const aFirstSeen = parseSqliteOrIsoMs(a.first_seen_at) ?? 0;
-    const bFirstSeen = parseSqliteOrIsoMs(b.first_seen_at) ?? 0;
     const aLastSeen = parseSqliteOrIsoMs(a.last_seen_at) ?? 0;
     const bLastSeen = parseSqliteOrIsoMs(b.last_seen_at) ?? 0;
-
-    const aIsDateOnly = Boolean(
-      a.posted_at && /^\d{4}-\d{2}-\d{2}$/.test(a.posted_at.trim()),
-    );
-    const bIsDateOnly = Boolean(
-      b.posted_at && /^\d{4}-\d{2}-\d{2}$/.test(b.posted_at.trim()),
-    );
-
-    const aAnchorMs = aIsDateOnly
-      ? aFirstSeen || aLastSeen
-      : aLastSeen || aFirstSeen;
-    const bAnchorMs = bIsDateOnly
-      ? bFirstSeen || bLastSeen
-      : bLastSeen || bFirstSeen;
-
-    const aAnchor = aAnchorMs > 0 ? new Date(aAnchorMs) : now;
-    const bAnchor = bAnchorMs > 0 ? new Date(bAnchorMs) : now;
-
-    const aPosted = parsePostedAtMs(a.posted_at, aAnchor) ?? aLastSeen;
-    const bPosted = parsePostedAtMs(b.posted_at, bAnchor) ?? bLastSeen;
+    const aPosted = getJobPostedAtMs(a, now);
+    const bPosted = getJobPostedAtMs(b, now);
 
     if (bPosted !== aPosted) {
       return bPosted - aPosted;
@@ -169,6 +157,7 @@ export function generateHtmlReport(
 
   const sortedJobs = sortJobsByDateDesc(jobs, now).map((job) => ({
     ...job,
+    postedAtMs: getJobPostedAtMs(job, now),
     companyResearch: readCompanyResearch(job.company_research_json, job.company),
     projectEstimate: hasValidProjectAssessment(job)
       ? { label: job.project_type, score: job.project_probability ?? null, evidence: job.project_evidence,

@@ -179,11 +179,12 @@ describe('SQLite job tracker', () => {
       t.mock.method(console, 'table', () => {});
       const out = path.join(dir, 'jobs.html');
       const queries: string[] = [];
+      const expectedLimit = query ? 3 : 30;
 
-      const exitCode = await handleFull(db, { query, out, sources: 'mcf', limit: '3' }, {
+      const exitCode = await handleFull(db, { query, out, sources: 'mcf', limit: query ? '3' : undefined }, {
         mycareersfuture: async ({ query, limit }) => {
           queries.push(query);
-          assert.equal(limit, 3);
+          assert.equal(limit, expectedLimit);
           return {
             jobs: [
               makeJob({ externalId: 'shared', title: 'Shared role', postedAt: '1d ago' }),
