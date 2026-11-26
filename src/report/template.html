@@ -233,6 +233,8 @@
     .dialog-content { padding: 0 20px 20px; }
     .dialog-content h3 { margin: 20px 0 8px; font-size: 1rem; }
     .dialog-content p { margin: 8px 0; }
+    .dialog-content details { margin: 12px 0; }
+    .dialog-content summary { font-size: 0.9rem; }
     .research-source { margin-bottom: 14px; }
     body:has(.research-dialog[open]) { overflow: hidden; }
     .empty {
@@ -383,10 +385,25 @@
       }));
     }
 
+    const sentenceSegmenter = typeof Intl.Segmenter === 'function'
+      ? new Intl.Segmenter('en', { granularity: 'sentence' }) : null;
+
+    function companyOverview(research) {
+      const summary = research.summary.trim();
+      if (!sentenceSegmenter) return summary;
+      for (const sentence of sentenceSegmenter.segment(summary)) {
+        const end = sentence.index + sentence.segment.length;
+        if (end === summary.length || /\s$/.test(sentence.segment)) {
+          return summary.slice(0, end).trim();
+        }
+      }
+      return summary;
+    }
+
     function renderCompanyPreview(job) {
       const research = job.companyResearch;
       if (!research) return '<span class="na">Not researched</span>';
-      return `<p class="company-preview">${escapeHtml(research.summary)}</p>
+      return `<p class="company-preview">${escapeHtml(companyOverview(research))}</p>
         <button type="button" class="research-button" data-research-id="${job.id}" aria-haspopup="dialog"
           aria-label="View company research for ${escapeHtml(job.company)}">View details</button>`;
     }
@@ -395,22 +412,47 @@
       if (!research) return '<span class="na">Not researched</span>';
       const g = research.glassdoor;
       const f = research.founders;
+      const reviewStatus = {
+        found: 'Review information found',
+        unavailable: 'Reviews could not be verified',
+        not_found: 'No matching reviews found',
+      }[g.status];
+      const founderStatus = {
+        found: f.names.join(', '),
+        unavailable: 'Founder information could not be verified',
+        not_found: 'No founder identified in the available sources',
+        not_applicable: 'Founder research was not performed for this large employer',
+      }[f.status];
+      const scale = {
+        small: 'Up to 200 employees reported',
+        large: 'More than 200 employees reported',
+        unknown: 'Employee count not confirmed',
+      }[research.size];
       const rating = g.rating === null ? '' : ` · ${g.rating}/5`;
       const reviews = g.reviewCount === null ? '' : ` · ${g.reviewCount} reviews`;
       const sources = research.sources.map(s =>
-        `<div class="research-source"><a class="job-link" href="${escapeHtml(safeHref(s.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title)}</a><p class="meta">${escapeHtml(s.evidence)}</p></div>`).join('');
-      return `<p>${escapeHtml(research.summary)}</p>
-        <p class="meta">${escapeHtml(research.identity)}</p>
-        <div class="meta">Company size: ${escapeHtml(research.size)}</div>
+        `<div class="research-source"><a class="job-link" href="${escapeHtml(safeHref(s.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title)}</a>
+          <details><summary>Supporting excerpt</summary><p class="meta">${escapeHtml(s.evidence)}</p></details></div>`).join('');
+      return `<h3>What the company does</h3>
+        <p>${escapeHtml(companyOverview(research))}</p>
+        <h3>Reported company scale</h3>
+        <p>${escapeHtml(scale)}</p>
+        <p class="meta">Counts may describe the global group or an older profile. See the full overview for scope and limitations.</p>
+        <details><summary>Full overview and verification notes</summary>
+          <p>${escapeHtml(research.summary)}</p>
+          <p class="meta">${escapeHtml(research.identity)}</p>
+        </details>
         <h3>Glassdoor reviews</h3>
-        <p class="meta">${escapeHtml(g.status.replaceAll('_', ' ') + rating + reviews)}</p>
-        <p>${escapeHtml(g.summary)}</p>
+        <p>${escapeHtml(reviewStatus + rating + reviews)}</p>
+        <details><summary>Review search notes</summary><p>${escapeHtml(g.summary)}</p></details>
         <h3>Founders</h3>
-        <p class="meta">${escapeHtml(f.status.replaceAll('_', ' '))}${f.names.length ? ` · ${escapeHtml(f.names.join(', '))}` : ''}</p>
-        <p>${escapeHtml(f.summary)}</p>
+        <p>${escapeHtml(founderStatus)}</p>
+        <details><summary>Founder research notes</summary><p>${escapeHtml(f.summary)}</p></details>
         <h3>Sources</h3>
         ${sources || '<p class="meta">No sources found.</p>'}
-        <p class="meta">Researched: ${escapeHtml(research.researchedAt)} · LLM: ${escapeHtml(research.model)}</p>`;
+        <details><summary>Research record</summary>
+          <p class="meta">Researched: ${escapeHtml(research.researchedAt)} · LLM: ${escapeHtml(research.model)}</p>
+        </details>`;
     }
 
     const sources = Array.from(new Set(jobs.map(j => j.source)));

@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { describe, it } from 'node:test';
 import { chromium } from 'playwright';
 import type { StoredJob } from '../src/db/client.js';
+import type { CompanyResearch } from '../src/db/company-research.js';
 import {
   formatTimestampFilename,
   generateHtmlReport,
@@ -193,6 +194,77 @@ describe('HTML report generator', () => {
       const pending = generateHtmlReport(jobs, { outPath });
       assert.ok(fs.readFileSync(pending, 'utf8').includes('"label":"Not analyzed","score":null'));
     } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('shows readable company details while keeping verification notes and excerpts accessible', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'job-company-details-'));
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const research: CompanyResearch = {
+        version: 1, company: 'Acme', model: 'test-model',
+        researchedAt: '2026-11-26T08:00:00Z',
+        identity: 'Registry notes for the exact legal employer.',
+        summary: 'Acme builds SQL/.NET software for retailers. The employee count is historical and covers the global group.',
+        size: 'large',
+        glassdoor: {
+          status: 'unavailable', url: null, rating: null, reviewCount: null,
+          summary: 'Unverified search-snippet opinions do not establish engineering-team conditions.',
+        },
+        founders: {
+          status: 'not_found', names: [], summary: 'Directors were not treated as founders.',
+        },
+        queries: ['Acme Singapore company', 'Acme Glassdoor reviews', 'Acme founders'],
+        sources: [{
+          url: 'https://example.com/about', title: 'Company website',
+          evidence: 'Acme builds software for retailers. <script>window.injected = true</script>',
+        }],
+      };
+      const job: StoredJob = {
+        id: 1, source: 'jobstreet', external_id: '1', url: 'https://example.com/job',
+        title: 'Developer', company: 'Acme', location: 'Singapore',
+        salary_min: null, salary_max: null, salary_currency: 'SGD', salary_interval: null,
+        employment_type: null, description_snippet: null, skills_json: '[]',
+        posted_at: '2026-11-26', first_seen_at: '2026-11-26 08:00:00',
+        last_seen_at: '2026-11-26 08:00:00', status: 'new', notes: null,
+        company_research_json: JSON.stringify(research),
+      };
+      const outPath = generateHtmlReport([job], { outPath: path.join(tmpDir, 'report.html') });
+      const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      await page.goto(pathToFileURL(outPath).href);
+      assert.equal(await page.locator('.company-preview').innerText(), 'Acme builds SQL/.NET software for retailers.');
+      await page.getByRole('button', { name: 'View company research for Acme' }).click();
+      const dialog = page.getByRole('dialog');
+      assert.ok(await dialog.isVisible());
+      assert.match(await dialog.innerText(), /Reviews could not be verified/);
+      assert.match(await dialog.innerText(), /No founder identified in the available sources/);
+      assert.ok(!(await dialog.innerText()).includes(research.identity));
+      assert.ok(!(await dialog.innerText()).includes(research.glassdoor.summary));
+      assert.ok(!(await dialog.innerText()).includes(research.sources[0].evidence));
+      await dialog.getByText('Full overview and verification notes', { exact: true }).click();
+      assert.match(await dialog.innerText(), /historical and covers the global group/);
+      assert.ok((await dialog.innerText()).includes(research.identity));
+      await dialog.getByText('Review search notes', { exact: true }).click();
+      assert.ok((await dialog.innerText()).includes(research.glassdoor.summary));
+      await dialog.getByText('Supporting excerpt', { exact: true }).click();
+      assert.ok((await dialog.innerText()).includes(research.sources[0].evidence));
+      assert.equal(await dialog.locator('script').count(), 0);
+      assert.equal(await page.evaluate(() => 'injected' in window), false);
+      const fits = await dialog.evaluate(element => element.scrollWidth <= element.clientWidth);
+      assert.ok(fits, 'Company details overflow on a narrow screen');
+      await page.keyboard.press('Escape');
+      assert.equal(await dialog.isVisible(), false);
+      const legacyPage = await browser.newPage();
+      await legacyPage.addInitScript(() => {
+        Object.defineProperty(Intl, 'Segmenter', { value: undefined, configurable: true });
+      });
+      await legacyPage.goto(pathToFileURL(outPath).href);
+      assert.equal(await legacyPage.locator('.company-preview').innerText(), research.summary);
+      await legacyPage.getByRole('button', { name: 'View company research for Acme' }).click();
+      assert.ok(await legacyPage.getByRole('dialog').isVisible());
+    } finally {
+      await browser.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
