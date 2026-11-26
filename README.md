@@ -415,3 +415,21 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+## Harness Job Classifier
+
+The [job-classifier skill](.agents/skills/job-classifier/SKILL.md) uses the acting agent to classify job domains, roles and explicit Java/C#/.NET/Python relevance. No separate model API, training service or software download is involved. The versioned definitions live in `config/job-classifier.json`.
+
+```powershell
+node --import tsx src/cli.ts classifier --limit 40 --out data/classifier/review-input.json
+# The harness reads every exported exemplar and writes source-backed decisions.
+node --import tsx src/cli.ts classifier --input data/classifier/review-decisions.json
+```
+
+The export inventories every stored job across all statuses and ages, then selects a bounded exemplar sample. It never generates labels. The review copies the exported metadata (including `sampleLimit` and `sampleSeed`), adds the actual `model`, and supplies complete `decisions`. Each decision has `id`, `input_hash`, and `domain`, `role`, `technology` judgments. Domain and role use `label`; technology uses `labels`. All three include `score`, an exact source `evidence` quote and `reasoning`. `Unclear` uses a null score.
+
+Every export also saves the authoritative `data/classifier/pending-snapshot.json`. Import validates its metadata and sample membership, source hashes, corpus size, rubric version/hash, labels, scores and evidence. It rejects snapshots seven days old and commits `data/classifier/latest-review.json` only after writing an immutable source audit, Markdown review report and any requested output. It preserves database project assessments, application statuses and company research. These are acting-model examples, not independently verified accuracy measurements.
+
+New project-domain assessments in the full harness workflow use the canonical rubric through the existing `analyze` import. Role and technology examples are stored separately in classifier artifacts; they are not currently displayed in the main HTML job report. Existing valid domain labels are preserved.
+
+Full harness workflows check `reviewDue` after company research. Review is due seven days after the reviewed source snapshot, or earlier if the rubric, corpus size or saved exemplar sources change. Reimporting historical decisions cannot reset this clock. A due review exports a deterministic exemplar sample and requires fresh agent judgments. Samples can overlap or repeat between reviews. This is checked when a full workflow runs; it does not create a background scheduled task.

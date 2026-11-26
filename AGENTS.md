@@ -7,10 +7,13 @@ When the user asks about jobs (e.g., *"what are the new jobs"*, *"job stats"*, *
 - Use `node --import tsx src/cli.ts <command>` (never `npm run dev -- ...`, which strips `--flag` arguments).
 - Database path defaults to `data/jobs.db`.
 - Treat "run full" as one complete agent workflow: scrape, review/import pending recent project assessments, export pending companies, perform actual LLM web searches for company information and Glassdoor reviews plus founders for small or unknown-size employers, import cited company research, and deliver the final report with all recent persisted results. Follow workflows 6 and 7 in the skill automatically after `full`; the CLI command alone only scrapes and produces a preliminary report. Preserve valid project assessments and company research independently.
+- Keep project skills under `.agents/skills`.
+- Use [.agents/skills/job-classifier/SKILL.md](.agents/skills/job-classifier/SKILL.md) for new project-domain decisions and classifier building. After the full workflow, run the classifier due check and complete the source-backed exemplar review when due. This runs through the acting harness model, without a separate model API. Preserve existing valid assessments.
 
 ## Development Commands & Review
 
 - Typecheck: `npm run typecheck`
 - Build: `npm run build`
 - Tests: `npm test`
+- `tsconfig.json` excludes tests, and `tsx` runs them without typechecking. When changing TypeScript tests, explicitly typecheck the affected files as well; see the [classifier verification guidance](.agents/skills/job-classifier/verification.md) for the command.
 - Run `agent-orchestrator` (`plan -> develop -> codereview -> complexitychecks -> architecturechecks -> halucinationchecks -> securitychecks`) alongside `npm run typecheck` and `npm test` for development changes.

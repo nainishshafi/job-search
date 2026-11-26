@@ -12,6 +12,8 @@ function printHelp(): void {
 Registered sources: ${sources}
 
 Commands:
+  classifier [--limit 40] [--input review.json] [--out path] [--db path]
+            Inventories all stored jobs and exports exemplars for harness review, or validates completed decisions.
   research  [--days 7] [--company <exact-name>] [--input review.json] [--out path] [--db path]
             Exports pending companies for LLM web search, or stores cited company research.
             --url <page-url> [--out evidence.json] reads rendered content with Playwright for LLM review.

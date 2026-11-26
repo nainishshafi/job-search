@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "dimensions": {
+    "domain": {
+      "Core banking": "Core banking engines, ledgers, account servicing or explicitly named core banking platforms. Generic banking is insufficient.",
+      "Private banking": "Explicit private-bank services or private-banking systems. Wealth management alone is insufficient.",
+      "Wealth and investment management": "Wealth, portfolio, fund or investment-management systems. Separate from execution and exchange infrastructure.",
+      "Banking": "Explicit banking applications without a supported narrower banking category.",
+      "Payments and fintech": "Payment processing, settlement, card systems, reconciliation or explicitly identified fintech financial products.",
+      "Financial markets and trading": "Exchanges, market risk, trade execution, trading platforms or market infrastructure.",
+      "Insurance": "Insurance policies, claims, underwriting or technology explicitly serving an insurer.",
+      "Crypto and digital assets": "Cryptocurrency, blockchain financial products or digital-asset exchanges.",
+      "Financial regulation": "Financial-sector supervision, regulatory reporting or regulatory authority systems. Do not merge with commercial banking.",
+      "Government services": "Explicit government-agency, public administration, community-services or statutory-board projects. Employer ownership alone is insufficient.",
+      "Public healthcare": "Explicit public hospitals or public healthcare systems.",
+      "Healthcare": "Clinical, medical, health-tech or private healthcare systems; public ownership not established.",
+      "Public education and research": "Explicit public education, university or publicly funded research work.",
+      "Education": "Private education, learning products or education work whose public status is not established.",
+      "Semiconductors and electronics": "Chip fabrication, semiconductor materials, electronic testing or semiconductor business systems.",
+      "Manufacturing and industrial systems": "Factory operations, industrial controls, manufacturing AI, industrial IoT or production automation.",
+      "Transport and aviation": "Rail, fare collection, airport, airline, aircraft simulation or air-traffic systems. Keep client identity uncertainty in reasoning.",
+      "Logistics and supply chain": "Warehouses, shipping, ports, logistics integration or supply-chain operations.",
+      "Energy and utilities": "Electricity, demand response, energy trading operations, utilities or sustainability infrastructure.",
+      "Retail and commerce": "Retail transactions, ecommerce, consumer finance tied to commerce or commercial food-and-beverage systems.",
+      "Media, social and gaming": "Publishing, video, social networks, advertising, creative content or gaming products.",
+      "Enterprise business software": "CRM, ERP, HCM, Salesforce, SAP or explicitly supported business workflow products without a narrower client industry.",
+      "AI and data products": "AI, data, analytics or database products with no established narrower end-user industry. Using Python or AI alone is insufficient.",
+      "Cloud, infrastructure and cybersecurity": "Cloud, network, developer tooling, infrastructure or security products with no established narrower client industry.",
+      "Other supported domain": "A clearly evidenced project domain outside this taxonomy. Explain the domain and flag it for taxonomy review.",
+      "Unclear": "The listing does not establish a project or product domain. Generic technologies, recruiter identity and company portfolios are insufficient."
+    },
+    "role": {
+      "Backend development": "Implementing server-side application logic, APIs or backend services.",
+      "Frontend development": "Implementing browser interfaces or frontend applications.",
+      "Full stack development": "Explicit responsibility for both frontend and backend development.",
+      "Mobile development": "Implementing Android, iOS or other mobile applications.",
+      "Software development": "Software engineering is established but a narrower role is not.",
+      "Data engineering": "Building ingestion, ETL, data pipelines, warehouses or data platforms.",
+      "AI and machine learning": "Developing, evaluating or deploying ML models, AI systems or agentic applications as a central responsibility.",
+      "Platform and DevOps": "Software delivery infrastructure, cloud platforms, SRE or developer tooling.",
+      "Support and operations": "Maintaining, troubleshooting or operating applications, databases or infrastructure.",
+      "Quality engineering": "Software testing, test automation, validation or quality assurance.",
+      "Security engineering": "Cybersecurity engineering, threat hunting, security analysis or technical security auditing.",
+      "Embedded and firmware": "Embedded software, firmware or hardware-facing software development.",
+      "Architecture and technical leadership": "Architecture or technical direction is central; a senior title alone is insufficient.",
+      "Management": "People, delivery, project or engineering management is central.",
+      "Analysis and consulting": "Business analysis, functional consulting, integration consulting or presales is central.",
+      "Other supported role": "A clearly described role outside these choices. Explain and flag it.",
+      "Unclear": "Available text does not establish the main responsibilities."
+    },
+    "technology": {
+      "Java": "Java programming language, JVM application development or an explicitly relevant Java stack.",
+      "C#/.NET": "C#, .NET, ASP.NET or explicitly relevant Microsoft application development.",
+      "Python": "Python programming language is explicitly relevant to the job.",
+      "Other explicit technology": "Other technologies are explicitly named but none of the three target stacks is established.",
+      "Unclear": "The text does not establish technology relevance. Absence of a technology name is not evidence it is unused."
+    }
+  }
+}

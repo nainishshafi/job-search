@@ -1,9 +1,11 @@
 import type Database from 'better-sqlite3';
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { getStats, listJobs, updateJobStatus } from '../db/client.js';
 import { getPendingProjectJobs, projectInputHash, saveLlmProjectReview } from '../db/project-analysis.js';
 import { getPendingCompanies, saveCompanyReview } from '../db/company-research.js';
+import { buildClassifierSnapshot, validateClassifierReview, type ClassifierRubric, type ClassifierSnapshot } from '../classifier.js';
 import { generateHtmlReport, isWithinDays } from '../report/html.js';
 import { runSearch } from '../runner.js';
 import { discoverBoards } from '../sources/api/discover.js';
@@ -298,6 +300,126 @@ function handleAnalyze(db: Database.Database, values: CliValues): number {
   return 0;
 }
 
+function handleClassifier(db: Database.Database, values: CliValues): number {
+  const rubric = JSON.parse(fs.readFileSync(path.resolve('config/job-classifier.json'), 'utf8')) as ClassifierRubric;
+  const directory = path.resolve('data/classifier');
+  const latestPath = path.join(directory, 'latest-review.json');
+  const pendingPath = path.join(directory, 'pending-snapshot.json');
+  const canonical = (file: string) => {
+    let ancestor = path.resolve(file);
+    const missing: string[] = [];
+    while (!fs.existsSync(ancestor)) {
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) throw new Error('Output path has no existing ancestor');
+      missing.push(path.basename(ancestor));
+      ancestor = parent;
+    }
+    const resolved = path.join(fs.realpathSync(ancestor), ...missing.reverse());
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  const sameFile = (first: string, second: string) => {
+    if (canonical(first) === canonical(second)) return true;
+    if (!fs.existsSync(first) || !fs.existsSync(second)) return false;
+    const firstStat = fs.statSync(first);
+    const secondStat = fs.statSync(second);
+    return firstStat.ino !== 0 && firstStat.ino === secondStat.ino && firstStat.dev === secondStat.dev;
+  };
+  const outPath = values.out ? path.resolve(values.out) : undefined;
+  if (outPath) {
+    let outputLink: fs.Stats | undefined;
+    try {
+      outputLink = fs.lstatSync(outPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (outputLink?.isSymbolicLink() && !fs.existsSync(outPath)) {
+      throw new Error('Output symlink target is missing');
+    }
+    const protectedPaths = [path.resolve('config/job-classifier.json'), values.input ? pendingPath : latestPath];
+    if (db.name && db.name !== ':memory:') {
+      protectedPaths.push(...['', '-wal', '-shm', '-journal'].map(suffix => path.resolve(db.name) + suffix));
+    }
+    if (fs.existsSync(directory)) {
+      protectedPaths.push(...fs.readdirSync(directory)
+        .filter(file => /^(review-\d.*\.json|report-.*\.md)$/.test(file))
+        .map(file => path.join(directory, file)));
+    }
+    if (protectedPaths.some(file => sameFile(outPath, file))) {
+      throw new Error('Classifier output cannot overwrite the database, rubric or protected review artifacts');
+    }
+  }
+  if (!values.input) {
+    let previous: unknown;
+    try {
+      previous = JSON.parse(fs.readFileSync(latestPath, 'utf8'));
+    } catch {
+      // Missing or unreadable prior state must permit a fresh review and repair.
+    }
+    const parsed = parsePositiveIntArg('limit', values.limit, 100);
+    if (!parsed.ok) {
+      console.error(parsed.error);
+      return 1;
+    }
+    const snapshot = buildClassifierSnapshot(db, rubric, parsed.value ?? 40, new Date(), previous);
+    const exportPath = outPath ?? path.join(directory, 'review-input.json');
+    fs.mkdirSync(directory, { recursive: true });
+    fs.mkdirSync(path.dirname(exportPath), { recursive: true });
+    fs.writeFileSync(exportPath, JSON.stringify(snapshot, null, 2));
+    fs.writeFileSync(pendingPath, JSON.stringify(snapshot, null, 2));
+    console.log(`Exported ${snapshot.jobs.length} exemplars from ${snapshot.corpusCount} stored jobs: ${exportPath}`);
+    console.log(`Classifier review due: ${snapshot.reviewDue}. The harness must make the decisions; database unchanged.`);
+    return 0;
+  }
+  const input: unknown = JSON.parse(fs.readFileSync(values.input, 'utf8'));
+  const pending = JSON.parse(fs.readFileSync(pendingPath, 'utf8')) as ClassifierSnapshot;
+  const { review, snapshot } = db.transaction(() => {
+    const review = validateClassifierReview(db, rubric, input, pending);
+    if (Date.now() - Date.parse(review.snapshotAt) >= 7 * 86400000) {
+      throw new Error('Export a fresh snapshot and review its sources; this review cycle is expired');
+    }
+    // Keep validation and audit sources on the same SQLite read snapshot.
+    const snapshot = buildClassifierSnapshot(db, rubric, review.sampleLimit, new Date(review.snapshotAt));
+    return { review, snapshot };
+  })();
+  const stamp = `${review.reviewedAt.replace(/[:.]/g, '-')}-${randomUUID()}`;
+  fs.mkdirSync(directory, { recursive: true });
+  const auditPath = path.join(directory, `review-${stamp}.json`);
+  fs.writeFileSync(auditPath, JSON.stringify({ review, sourceSnapshot: snapshot }, null, 2), { flag: 'wx' });
+  if (outPath) {
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    // Case variants, symlinks and hard links must not bypass the commit boundary.
+    if (!sameFile(outPath, latestPath)) {
+      fs.writeFileSync(outPath, JSON.stringify(review, null, 2));
+    }
+  }
+  const clean = (text: string) => text.replace(/\\/g, '\\\\')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/([`*_[\]{}()])/g, '\\$1').replace(/[|\r\n]/g, ' ');
+  const byId = new Map(snapshot.jobs.map((job) => [job.id, job]));
+  const rows = review.decisions.map((decision) =>
+    `| ${decision.id} | ${clean(byId.get(decision.id)!.title)} | ${clean(decision.domain.label)} | ${clean(decision.role.label)} | ${clean(decision.technology.labels.join(', '))} |`);
+  const reportPath = path.join(directory, `report-${stamp}.md`);
+  fs.writeFileSync(reportPath, [
+    '# Harness job classifier review', '',
+    `Rubric version ${review.rubricVersion}. Reviewed by ${clean(review.model)} at ${review.reviewedAt}.`,
+    `Corpus: ${review.corpusCount} stored jobs. Detailed exemplar review: ${review.decisions.length} jobs.`,
+    'These are acting-model judgments with validated source quotes, not independently verified accuracy measurements.',
+    'Existing database project assessments, application statuses and company research were preserved.', '',
+    '| ID | Job | Domain | Role | Technology |',
+    '| --- | --- | --- | --- | --- |', ...rows, '',
+    `Audit with source snapshots: ${path.basename(auditPath)}`,
+    'Periodic reviews are checked during full harness workflows; no background schedule is installed.', '',
+  ].join('\n'));
+  // Commit completion only after every requested artifact has been written.
+  const stagedLatest = path.join(directory, `.latest-${stamp}.tmp`);
+  fs.writeFileSync(stagedLatest, JSON.stringify(review, null, 2), { flag: 'wx' });
+  fs.renameSync(stagedLatest, latestPath);
+  console.log(`Validated ${review.decisions.length} exemplar decisions from ${review.corpusCount} stored jobs.`);
+  console.log(`Classifier examples saved: ${latestPath}`);
+  console.log(`Classifier report: ${reportPath}`);
+  return 0;
+}
+
 async function handleResearch(db: Database.Database, values: CliValues): Promise<number> {
   if (values.url !== undefined) {
     if (values.input || values.company || values.days) {
@@ -345,6 +467,7 @@ async function handleResearch(db: Database.Database, values: CliValues): Promise
 }
 
 export const DB_COMMANDS: Record<string, DbCommandHandler> = {
+  classifier: handleClassifier,
   research: handleResearch,
   analyze: handleAnalyze,
   full: handleFull,
