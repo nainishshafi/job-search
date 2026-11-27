@@ -1,4 +1,5 @@
 import { detectAntiBotBlock, withBrowserPage } from '../playwright/browser.js';
+import { isWithinDays } from '../../report/html.js';
 import type {
   JobListing,
   JobSourcePlugin,
@@ -131,7 +132,12 @@ async function fetchMcfViaPlaywright(
       }
 
       let unseenOnPage = 0;
+      let tooOldOnPage = 0;
       for (const job of pageJobs) {
+        if (options.days !== undefined && !isWithinDays(job.postedAt, options.days)) {
+          tooOldOnPage += 1;
+          continue;
+        }
         if (!knownIds?.has(job.externalId)) {
           unseenOnPage += 1;
         }
@@ -139,8 +145,8 @@ async function fetchMcfViaPlaywright(
         if (jobs.length >= options.limit) break;
       }
 
-      // Stop paginating once we reach a page of already-tracked jobs.
-      if (knownIds && knownIds.size > 0 && unseenOnPage === 0) {
+      // Stop paginating once we reach a page of already-tracked jobs or jobs that are too old.
+      if ((knownIds && knownIds.size > 0 && unseenOnPage === 0) || (options.days !== undefined && tooOldOnPage > 0)) {
         break;
       }
     }
@@ -197,15 +203,20 @@ export async function fetchMyCareersFutureJobs(
         break;
       }
 
+      let tooOldInBatch = 0;
       for (const raw of rawItems) {
         const normalized = normalizeMcfJob(raw);
         if (normalized) {
+          if (options.days !== undefined && !isWithinDays(normalized.postedAt, options.days)) {
+            tooOldInBatch += 1;
+            continue;
+          }
           jobs.push(normalized);
           if (jobs.length >= options.limit) break;
         }
       }
 
-      if (rawItems.length < pageSize) {
+      if (rawItems.length < pageSize || (options.days !== undefined && tooOldInBatch > 0)) {
         break;
       }
       page += 1;

@@ -255,6 +255,9 @@ describe('harness classifier review validation', () => {
     const directory = fs.mkdtempSync(path.join(originalCwd, 'data', 'classifier-test-'));
     const db = fixture();
     db.prepare('UPDATE jobs SET title = ?').run('Developer <img src=x onerror=alert(1)> [open](javascript:alert(1))');
+    db.exec(`UPDATE jobs SET posted_at = CASE id
+      WHEN 1 THEN '2026-01-02' WHEN 2 THEN '2026-01-04'
+      WHEN 3 THEN '2026-01-03' WHEN 4 THEN '2026-01-01' ELSE posted_at END`);
     const before = db.prepare('SELECT * FROM jobs ORDER BY id').all();
     try {
       fs.mkdirSync(path.join(directory, 'config'));
@@ -339,6 +342,10 @@ describe('harness classifier review validation', () => {
       assert.deepEqual(audit.sourceSnapshot.jobs, snapshot.jobs);
       const reportFile = fs.readdirSync('data/classifier').find(file => /^report-.*\.md$/.test(file))!;
       const reportText = fs.readFileSync(path.join('data/classifier', reportFile), 'utf8');
+      assert.deepEqual([...reportText.matchAll(/^\| (\d+) \| (\d{4}-\d{2}-\d{2}) \|/gm)]
+        .map(([, id, date]) => [id, date]), [
+        ['2', '2026-01-04'], ['3', '2026-01-03'], ['1', '2026-01-02'], ['4', '2026-01-01'],
+      ]);
       assert.ok(reportText.includes('&lt;img src=x onerror=alert\\(1\\)&gt;'));
       assert.ok(reportText.includes('\\[open\\]\\(javascript:alert\\(1\\)\\)'));
       assert.ok(!reportText.includes('<img'));

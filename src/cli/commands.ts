@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getStats, listJobs, updateJobStatus } from '../db/client.js';
 import { getPendingProjectJobs, projectInputHash, saveLlmProjectReview } from '../db/project-analysis.js';
-import { getPendingCompanies, saveCompanyReview } from '../db/company-research.js';
+import { getPendingCompanies, saveCompanyReview, readCompanyResearch } from '../db/company-research.js';
 import { loadJobRubric, readJobClassification,
   validateClassificationFilter, type ClassificationFilter } from '../job-classification.js';
-import { generateHtmlReport, isWithinDays } from '../report/html.js';
+import { assertHtmlReportDateOrder, generateHtmlReport, isWithinDays } from '../report/html.js';
 import { runSearch } from '../runner.js';
 import { discoverBoards } from '../sources/api/discover.js';
 import { readCompanyPage } from '../sources/playwright/company-pages.js';
@@ -128,6 +128,7 @@ export async function handleFull(
       query,
       sources,
       limit: limitParsed.value ?? 30,
+      days: daysParsed.value ?? 7,
       fetchers,
     });
     console.table(reports);
@@ -280,6 +281,42 @@ function handleStats(db: Database.Database): number {
   return 0;
 }
 
+function handleCheck(db: Database.Database, values: CliValues): number {
+  const parsed = parsePositiveIntArg('days', values.days);
+  if (!parsed.ok) {
+    console.error(parsed.error);
+    return 1;
+  }
+  const days = parsed.value ?? 7;
+  const now = new Date();
+  const jobs = listJobs(db, { limit: 1000, predicate: job => isWithinDays(job.posted_at, days, now) });
+  if (values.input !== undefined) {
+    try {
+      assertHtmlReportDateOrder(fs.readFileSync(values.input, 'utf-8'));
+      console.log('HTML report date order: verified (newest posting first).');
+    } catch (error) {
+      console.error(`HTML report date order check failed: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    }
+  }
+
+  const pendingClassification = jobs.filter(j => !readJobClassification(j, loadJobRubric(), now));
+  const pendingResearch = jobs.filter(j => !readCompanyResearch(j.company_research_json, j.company));
+
+  console.log(`Pipeline check for last ${days} days:`);
+  console.log(`- Total jobs in scope: ${jobs.length}`);
+  console.log(`- Pending classification: ${pendingClassification.length}`);
+  console.log(`- Pending company research: ${pendingResearch.length}`);
+
+  if (pendingClassification.length > 0 || pendingResearch.length > 0) {
+    console.log('\nPipeline is INCOMPLETE. Run classification and research workflows.');
+    return 1;
+  }
+
+  console.log('\nPipeline is COMPLETE.');
+  return 0;
+}
+
 function handleAnalyze(db: Database.Database, values: CliValues): number {
   const parsed = parsePositiveIntArg('days', values.days);
   if (!parsed.ok) {
@@ -370,4 +407,5 @@ export const DB_COMMANDS: Record<string, DbCommandHandler> = {
   report: handleReport,
   update: handleUpdate,
   stats: handleStats,
+  check: handleCheck,
 };

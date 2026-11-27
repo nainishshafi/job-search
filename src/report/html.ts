@@ -105,7 +105,9 @@ export function parsePostedAtMs(
   return parseSqliteOrIsoMs(trimmed);
 }
 
-export function getJobPostedAtMs(job: StoredJob, now: Date = new Date()): number {
+type JobDates = Pick<StoredJob, 'id' | 'posted_at' | 'first_seen_at' | 'last_seen_at'>;
+
+export function getJobPostedAtMs(job: JobDates, now: Date = new Date()): number {
   const firstSeen = parseSqliteOrIsoMs(job.first_seen_at) ?? 0;
   const lastSeen = parseSqliteOrIsoMs(job.last_seen_at) ?? 0;
   const dateOnly = Boolean(job.posted_at && /^\d{4}-\d{2}-\d{2}$/.test(job.posted_at.trim()));
@@ -113,24 +115,41 @@ export function getJobPostedAtMs(job: StoredJob, now: Date = new Date()): number
   return parsePostedAtMs(job.posted_at, anchorMs > 0 ? new Date(anchorMs) : now) ?? lastSeen;
 }
 
-export function sortJobsByDateDesc(
-  jobs: StoredJob[],
-  now: Date = new Date(),
-): StoredJob[] {
-  return [...jobs].sort((a, b) => {
-    const aLastSeen = parseSqliteOrIsoMs(a.last_seen_at) ?? 0;
-    const bLastSeen = parseSqliteOrIsoMs(b.last_seen_at) ?? 0;
-    const aPosted = getJobPostedAtMs(a, now);
-    const bPosted = getJobPostedAtMs(b, now);
+function compareReportOrder(
+  a: { id: number; postedAtMs: number; last_seen_at: string },
+  b: { id: number; postedAtMs: number; last_seen_at: string },
+): number {
+  return b.postedAtMs - a.postedAtMs ||
+    (parseSqliteOrIsoMs(b.last_seen_at) ?? 0) - (parseSqliteOrIsoMs(a.last_seen_at) ?? 0) ||
+    b.id - a.id;
+}
 
-    if (bPosted !== aPosted) {
-      return bPosted - aPosted;
+export function sortJobsByDateDesc<T extends JobDates>(
+  jobs: T[],
+  now: Date = new Date(),
+): T[] {
+  return jobs.map(job => ({ job, id: job.id, last_seen_at: job.last_seen_at, postedAtMs: getJobPostedAtMs(job, now) }))
+    .sort(compareReportOrder).map(({ job }) => job);
+}
+
+export function assertHtmlReportDateOrder(html: string): void {
+  if (!/<select id="sortOrder"[^>]*>\s*<option value="posted-desc" selected>[^<]*<\/option>(?:(?!<\/select>)[\s\S])*?<\/select>/.test(html) ||
+      /<option value="id-desc"[^>]*\bselected\b/.test(html)) {
+    throw new Error('HTML report does not default to newest posting first');
+  }
+  const payload = html.match(/<script id="jobs-data" type="application\/json">([^<]*)<\/script>/)?.[1];
+  const rows = payload === undefined ? null : JSON.parse(payload);
+  if (!Array.isArray(rows)) throw new Error('HTML report job data is missing or invalid');
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || !Number.isSafeInteger(row.id) || !Number.isFinite(row.postedAtMs) ||
+        typeof row.last_seen_at !== 'string') {
+      throw new Error(`Invalid HTML report sort key at row ${i + 1}`);
     }
-    if (bLastSeen !== aLastSeen) {
-      return bLastSeen - aLastSeen;
+    if (i > 0 && compareReportOrder(rows[i - 1], row) > 0) {
+      throw new Error(`HTML report is out of date order: job ${rows[i - 1].id} before job ${row.id}`);
     }
-    return b.id - a.id;
-  });
+  }
 }
 
 function escapeHtmlText(text: string): string {
@@ -181,6 +200,7 @@ export function generateHtmlReport(
     /\{\{(TITLE|FILTER_SUMMARY|GENERATED_AT|JOBS_JSON|CLASSIFICATION_LABELS_JSON)\}\}/g,
     (_, key: string) => replacements[key],
   );
+  assertHtmlReportDateOrder(html);
 
   const outPath = path.resolve(
     options.outPath ??

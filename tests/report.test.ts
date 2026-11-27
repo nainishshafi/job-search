@@ -14,6 +14,7 @@ import {
   type ClassificationFilter, type SavedJobClassification,
 } from '../src/job-classification.js';
 import {
+  assertHtmlReportDateOrder,
   formatTimestampFilename,
   generateHtmlReport,
   isWithinDays,
@@ -296,9 +297,14 @@ describe('HTML report generator', () => {
       const page = await browser.newPage();
       await page.goto(pathToFileURL(outPath).href);
       const ids = () => page.locator('#jobsBody tr td:first-child').allTextContents();
-      assert.deepEqual(await ids(), ['#3', '#2', '#1']);
-      await page.selectOption('#sortOrder', 'posted-desc');
+      assert.equal(await page.locator('#sortOrder').inputValue(), 'posted-desc');
       assert.deepEqual(await ids(), ['#2', '#1', '#3']);
+      const html = fs.readFileSync(outPath, 'utf8');
+      assert.doesNotThrow(() => assertHtmlReportDateOrder(html));
+      assert.throws(() => assertHtmlReportDateOrder(html.replace('value="posted-desc" selected', 'value="id-desc" selected')), /does not default/);
+      const reversed = html.replace(/(<script id="jobs-data" type="application\/json">)([^<]*)/, (_, tag, json) =>
+        tag + JSON.stringify(JSON.parse(json).reverse()).replace(/</g, '\\u003c'));
+      assert.throws(() => assertHtmlReportDateOrder(reversed), /out of date order/);
       assert.match(await page.locator('#jobsBody tr').first().locator('td[data-label="Posted"]').innerText(), /26 Nov 2026/);
       await page.fill('#searchInput', 'Acme');
       assert.deepEqual(await ids(), ['#2', '#1', '#3']);
@@ -400,6 +406,7 @@ describe('HTML report generator', () => {
       }
       const ids = async () => (await page.locator('#jobsBody tr td:first-child').allTextContents())
         .map(text => Number(text.slice(1)));
+      await page.selectOption('#sortOrder', 'id-desc');
       const cases: ClassificationFilter[] = [
         {}, { strict: true }, { domain: 'Banking' }, { role: 'Backend development' },
         { technology: 'Java' }, { technology: 'Python' }, { technology: 'C#/.NET' },

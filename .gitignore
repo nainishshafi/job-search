@@ -17,3 +17,5 @@ test-results/
 Thumbs.db
 .orchestrator/
 /run-job-search.bat
+/fix_decisions.js
+/generate_batch_[0-9]*.js

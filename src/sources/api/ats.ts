@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { isWithinDays } from '../../report/html.js';
 import type {
   JobListing,
   JobSourcePlugin,
@@ -173,6 +174,9 @@ async function fetchAtsBoards<TRaw>(
       for (const raw of extractItems(payload)) {
         const job = normalize(raw, board.company);
         if (!job) continue;
+        if (options.days !== undefined && !isWithinDays(job.postedAt, options.days)) {
+          continue;
+        }
         const searchable = `${job.title} ${job.descriptionSnippet ?? ''}`;
         if (matchesQuery(searchable, options.query)) {
           matched.push(job);

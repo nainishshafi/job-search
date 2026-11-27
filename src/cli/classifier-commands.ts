@@ -6,6 +6,8 @@ import { buildClassifierSnapshot, validateClassifierReview, type ClassifierRubri
 import { buildClassificationBatch, classificationDatabaseId, loadJobRubric, saveClassificationBatch,
   type ClassificationBatch } from '../job-classification.js';
 import { type CliValues, parsePositiveIntArg } from './args.js';
+import type { StoredJob } from '../db/client.js';
+import { getJobPostedAtMs, sortJobsByDateDesc } from '../report/html.js';
 
 function canonical(file: string): string {
   let ancestor = path.resolve(file);
@@ -171,14 +173,19 @@ export function handleClassifier(db: Database.Database, values: CliValues): numb
   }
   const input: unknown = JSON.parse(fs.readFileSync(values.input, 'utf8'));
   const pending = JSON.parse(fs.readFileSync(pendingPath, 'utf8')) as ClassifierSnapshot;
-  const { review, snapshot } = db.transaction(() => {
+  const { review, snapshot, datedJobs } = db.transaction(() => {
     const review = validateClassifierReview(db, rubric, input, pending);
     if (Date.now() - Date.parse(review.snapshotAt) >= 7 * 86400000) {
       throw new Error('Export a fresh snapshot and review its sources; this review cycle is expired');
     }
     // Keep validation and audit sources on the same SQLite read snapshot.
     const snapshot = buildClassifierSnapshot(db, rubric, review.sampleLimit, new Date(review.snapshotAt));
-    return { review, snapshot };
+    const dates = db.prepare('SELECT id, posted_at, first_seen_at, last_seen_at FROM jobs WHERE id = ?');
+    const datedJobs = snapshot.jobs.map(job => ({
+      ...job,
+      ...(dates.get(job.id) as Pick<StoredJob, 'id' | 'posted_at' | 'first_seen_at' | 'last_seen_at'>),
+    }));
+    return { review, snapshot, datedJobs };
   })();
   const stamp = `${review.reviewedAt.replace(/[:.]/g, '-')}-${randomUUID()}`;
   fs.mkdirSync(directory, { recursive: true });
@@ -194,9 +201,13 @@ export function handleClassifier(db: Database.Database, values: CliValues): numb
   const clean = (text: string) => text.replace(/\\/g, '\\\\')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/([`*_[\]{}()])/g, '\\$1').replace(/[|\r\n]/g, ' ');
-  const byId = new Map(snapshot.jobs.map((job) => [job.id, job]));
-  const rows = review.decisions.map((decision) =>
-    `| ${decision.id} | ${clean(byId.get(decision.id)!.title)} | ${clean(decision.domain.label)} | ${clean(decision.role.label)} | ${clean(decision.technology.labels.join(', '))} |`);
+  const byId = new Map(review.decisions.map((decision) => [decision.id, decision]));
+  const reportDate = new Date(review.snapshotAt);
+  const rows = sortJobsByDateDesc(datedJobs, reportDate).map(job => {
+    const decision = byId.get(job.id)!;
+    const postingDate = getJobPostedAtMs(job, reportDate);
+    return `| ${job.id} | ${postingDate ? new Date(postingDate).toISOString().slice(0, 10) : 'N/A'} | ${clean(job.title)} | ${clean(decision.domain.label)} | ${clean(decision.role.label)} | ${clean(decision.technology.labels.join(', '))} |`;
+  });
   const reportPath = path.join(directory, `report-${stamp}.md`);
   fs.writeFileSync(reportPath, [
     '# Harness job classifier review', '',
@@ -204,8 +215,9 @@ export function handleClassifier(db: Database.Database, values: CliValues): numb
     `Corpus: ${review.corpusCount} stored jobs. Detailed exemplar review: ${review.decisions.length} jobs.`,
     'These are acting-model judgments with validated source quotes, not independently verified accuracy measurements.',
     'Existing database project assessments, application statuses and company research were preserved.', '',
-    '| ID | Job | Domain | Role | Technology |',
-    '| --- | --- | --- | --- | --- |', ...rows, '',
+    'Newest posting first (UTC); uses last seen when the posting date is unavailable.', '',
+    '| ID | Date (UTC) | Job | Domain | Role | Technology |',
+    '| --- | --- | --- | --- | --- | --- |', ...rows, '',
     `Audit with source snapshots: ${path.basename(auditPath)}`,
     'Periodic reviews are checked during full harness workflows; no background schedule is installed.', '',
   ].join('\n'));

@@ -32,6 +32,7 @@ export interface JobListing {
 export interface SearchOptions {
   query: string;
   limit: number;
+  days?: number;
   knownIds?: ReadonlySet<string>;
 }
 

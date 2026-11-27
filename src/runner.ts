@@ -23,6 +23,7 @@ export async function runSearch(
     query: string;
     sources: JobSourceName[];
     limit: number;
+    days?: number;
     fetchers?: Partial<Record<JobSourceName, JobFetcher>>;
   },
 ): Promise<SourceRunReport[]> {
@@ -49,6 +50,7 @@ export async function runSearch(
       const result = await fetcher({
         query: options.query,
         limit: options.limit,
+        days: options.days,
         knownIds,
       });
 

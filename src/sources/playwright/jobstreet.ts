@@ -5,6 +5,7 @@ import type {
   SearchOptions,
   SourceFetchResult,
 } from '../types.js';
+import { isWithinDays } from '../../report/html.js';
 import { detectAntiBotBlock, withBrowserPage } from './browser.js';
 
 export interface RawJobStreetCard {
@@ -192,15 +193,20 @@ export async function fetchJobStreetJobs(
       }
 
       let unseenOnPage = 0;
+      let tooOldOnPage = 0;
       for (const job of pageJobs) {
+        if (options.days !== undefined && !isWithinDays(job.postedAt, options.days)) {
+          tooOldOnPage += 1;
+          continue;
+        }
         if (!knownIds?.has(job.externalId)) {
           unseenOnPage += 1;
         }
         jobs.push(job);
       }
 
-      // Stop paginating once we hit a page of already-tracked jobs.
-      if (knownIds && knownIds.size > 0 && unseenOnPage === 0) {
+      // Stop paginating once we hit a page of already-tracked jobs or jobs that are too old.
+      if ((knownIds && knownIds.size > 0 && unseenOnPage === 0) || (options.days !== undefined && tooOldOnPage > 0)) {
         break;
       }
     }

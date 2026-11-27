@@ -28,6 +28,8 @@ Commands:
   report    [--status new|saved|applied|...] [--source <id>] [--search text] [--days 7] [--limit 500] [--out path] [--db path]
   update    --id <jobId> --status <status> [--notes "text"] [--db path]
   stats     [--db path]
+  check     [--days 7] [--input report.html] [--db path]
+            Verifies classification and research completeness, and optionally HTML date order.
   discover  [--tokens gh:foo,lv:bar] [--url <page-url>] [--boards path]
 
 list/report filters: --domain <rubric-label> --role <rubric-label> --technology <rubric-label>
